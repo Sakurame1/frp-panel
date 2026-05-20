@@ -1,16 +1,22 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { TbDeviceHeartMonitor, TbEngine, TbEngineOff, TbServer2, TbServerBolt, TbServerOff } from 'react-icons/tb'
+import { TbDeviceHeartMonitor, TbEngine, TbEngineOff, TbServer2, TbServerBolt, TbServerOff, TbUsers } from 'react-icons/tb'
 import { useEffect } from 'react'
 import { $platformInfo } from '@/store/user'
 import { getPlatformInfo } from '@/api/platform'
 import { useTranslation } from 'react-i18next';
+import { listUsers } from '@/api/permission'
 
 export default function PlatformInfo() {
   const { t } = useTranslation();
   const platformInfo = useQuery({
     queryKey: ['platformInfo'],
     queryFn: getPlatformInfo,
+  })
+  const registeredUsers = useQuery({
+    queryKey: ['registeredUsers'],
+    queryFn: listUsers,
+    retry: false,
   })
   useEffect(() => {
     $platformInfo.set(platformInfo.data)
@@ -86,6 +92,18 @@ export default function PlatformInfo() {
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{platformInfo.data?.totalClientCount} {t('platform.unit')}</div>
+          <p className="text-xs text-muted-foreground">{t('platform.menuHint')}</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <div className="flex justify-between">
+            <h3 className="tracking-tight text-sm font-medium">{t('platform.registeredUsers', '注册用户数量')}</h3>
+            <TbUsers className="mt-1" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{registeredUsers.data?.length ?? 0} {t('platform.unit')}</div>
           <p className="text-xs text-muted-foreground">{t('platform.menuHint')}</p>
         </CardContent>
       </Card>
