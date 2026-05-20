@@ -45,3 +45,31 @@ export const updateRegisterSetting = async (setting: Partial<RegisterSetting>) =
   const res = await http.post(API_PATH + '/permission/register-setting/update', setting)
   return unwrap(res)
 }
+
+export interface AdminUser {
+  user_id: number
+  user_name: string
+  email: string
+  status: number
+  role: string
+}
+
+export const listUsers = async (): Promise<AdminUser[]> => {
+  const res = await http.post(API_PATH + '/permission/user/list', {})
+  return unwrap(res) ?? []
+}
+
+export const updateUser = async (req: Partial<AdminUser> & { user_id: number }) => {
+  const res = await http.post(API_PATH + '/permission/user/update', req)
+  return unwrap(res)
+}
+
+export const grantPermission = async (req: { obj_type: string; obj_id: string; target_type: 'user' | 'group'; target_id: string; permission: 'view' | 'edit' }) => {
+  const res = await http.post(API_PATH + '/permission/grant', req)
+  return unwrap(res)
+}
+
+export const revokePermission = async (req: { obj_type: string; obj_id: string; target_type: 'user' | 'group'; target_id: string; permission: 'view' | 'edit' }) => {
+  const res = await http.post(API_PATH + '/permission/revoke', req)
+  return unwrap(res)
+}

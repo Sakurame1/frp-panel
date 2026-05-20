@@ -36,9 +36,11 @@ type groupMemberRequest struct {
 }
 
 type userAdminRequest struct {
-	UserID int    `json:"user_id"`
-	Role   string `json:"role"`
-	Status *int   `json:"status"`
+	UserID   int    `json:"user_id"`
+	UserName string `json:"user_name"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+	Status   *int   `json:"status"`
 }
 
 type inviteCreateRequest struct {
@@ -305,6 +307,12 @@ func UpdateUser(appInstance app.Application) gin.HandlerFunc {
 		}
 		if req.Role != "" {
 			user.Role = req.Role
+		}
+		if req.UserName != "" {
+			user.UserName = req.UserName
+		}
+		if req.Email != "" {
+			user.Email = req.Email
 		}
 		if req.Status != nil {
 			user.Status = *req.Status
