@@ -324,7 +324,11 @@ func ListResourcePermissions(appInstance app.Application) gin.HandlerFunc {
 		userNames, groupNames := loadPermissionSubjectNames(appInstance, userInfo.GetTenantID())
 		domain := rbacsvc.TenantDomain(userInfo.GetTenantID())
 		object := rbacsvc.Object(objType, req.ObjID)
-		policies := appInstance.GetEnforcer().GetFilteredPolicy(1, object)
+		policies, err := appInstance.GetEnforcer().GetFilteredPolicy(1, object)
+		if err != nil {
+			errJSON(c, http.StatusInternalServerError, err)
+			return
+		}
 		merged := map[string]*resourcePermissionEntry{}
 		for _, policy := range policies {
 			if len(policy) < 4 || policy[3] != domain {
