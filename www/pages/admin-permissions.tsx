@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 
 function AdminPermissionPanel() {
   const [invites, setInvites] = useState<InviteCode[]>([])
+  const [registerEnabled, setRegisterEnabled] = useState(false)
   const [inviteRequired, setInviteRequired] = useState(true)
   const [maxUses, setMaxUses] = useState(1)
   const [days, setDays] = useState(7)
@@ -19,12 +20,13 @@ function AdminPermissionPanel() {
 
   const reload = async () => {
     const [setting, inviteList] = await Promise.all([getRegisterSetting(), listInvites()])
+    setRegisterEnabled(setting.register_enabled)
     setInviteRequired(setting.invite_required)
     setInvites(inviteList)
   }
 
   useEffect(() => {
-    reload().catch((e) => toast.error((e as Error).message))
+    reload().catch((e) => toast.error(getErrorMessage(e)))
   }, [])
 
   const submitInvite = async () => {
@@ -35,9 +37,19 @@ function AdminPermissionPanel() {
     toast.success('邀请码已创建')
   }
 
+  const toggleRegisterEnabled = async (checked: boolean) => {
+    setRegisterEnabled(checked)
+    const next = await updateRegisterSetting({ register_enabled: checked })
+    setRegisterEnabled(next.register_enabled)
+    setInviteRequired(next.invite_required)
+    toast.success('注册设置已更新')
+  }
+
   const toggleInviteRequired = async (checked: boolean) => {
     setInviteRequired(checked)
-    await updateRegisterSetting(checked)
+    const next = await updateRegisterSetting({ invite_required: checked })
+    setRegisterEnabled(next.register_enabled)
+    setInviteRequired(next.invite_required)
     toast.success('注册设置已更新')
   }
 
@@ -55,10 +67,17 @@ function AdminPermissionPanel() {
         <CardContent className="flex flex-col gap-4">
           <div className="flex items-center justify-between rounded-md border p-3">
             <div>
+              <div className="text-sm font-medium">允许新用户注册</div>
+              <div className="text-xs text-muted-foreground">关闭后，除首个管理员外，任何邀请码都不能注册新账号。</div>
+            </div>
+            <Switch checked={registerEnabled} onCheckedChange={toggleRegisterEnabled} />
+          </div>
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
               <div className="text-sm font-medium">注册必须使用邀请码</div>
               <div className="text-xs text-muted-foreground">关闭后，开放注册不再校验邀请码。</div>
             </div>
-            <Switch checked={inviteRequired} onCheckedChange={toggleInviteRequired} />
+            <Switch checked={inviteRequired} onCheckedChange={toggleInviteRequired} disabled={!registerEnabled} />
           </div>
           <div className="grid gap-3 md:grid-cols-[160px_160px_1fr_auto]">
             <Input type="number" min={1} value={maxUses} onChange={(e) => setMaxUses(Number(e.target.value))} placeholder="激活次数" />
@@ -87,7 +106,9 @@ function AdminPermissionPanel() {
               {invites.map((invite) => (
                 <TableRow key={invite.id}>
                   <TableCell className="font-mono">{invite.code}</TableCell>
-                  <TableCell>{invite.used_count}/{invite.max_uses}</TableCell>
+                  <TableCell>
+                    {invite.used_count}/{invite.max_uses}
+                  </TableCell>
                   <TableCell>{invite.expires_at ? new Date(invite.expires_at).toLocaleString() : '长期'}</TableCell>
                   <TableCell>{invite.disabled ? '禁用' : '启用'}</TableCell>
                   <TableCell className="text-right">
@@ -103,6 +124,12 @@ function AdminPermissionPanel() {
       </Card>
     </div>
   )
+}
+
+function getErrorMessage(error: unknown) {
+  if (typeof error === 'string') return error
+  if (error instanceof Error) return error.message
+  return '操作失败'
 }
 
 export default function AdminPermissionsPage() {

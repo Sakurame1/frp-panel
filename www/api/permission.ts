@@ -31,12 +31,17 @@ export const updateInvite = async (req: { id: number; disabled: boolean }) => {
   return unwrap(res)
 }
 
-export const getRegisterSetting = async (): Promise<{ invite_required: boolean }> => {
-  const res = await http.post(API_PATH + '/permission/register-setting/get', {})
-  return unwrap(res) ?? { invite_required: true }
+export interface RegisterSetting {
+  register_enabled: boolean
+  invite_required: boolean
 }
 
-export const updateRegisterSetting = async (inviteRequired: boolean) => {
-  const res = await http.post(API_PATH + '/permission/register-setting/update', { invite_required: inviteRequired })
+export const getRegisterSetting = async (): Promise<RegisterSetting> => {
+  const res = await http.post(API_PATH + '/permission/register-setting/get', {})
+  return unwrap(res) ?? { register_enabled: false, invite_required: true }
+}
+
+export const updateRegisterSetting = async (setting: Partial<RegisterSetting>) => {
+  const res = await http.post(API_PATH + '/permission/register-setting/update', setting)
   return unwrap(res)
 }

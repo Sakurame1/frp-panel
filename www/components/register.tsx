@@ -52,7 +52,7 @@ export function RegisterComponent() {
       }
     } catch (e) {
       toast(t('auth.registerFailed'), {
-        description: (e as Error).message
+        description: getErrorMessage(e)
       })
       console.log('register error', e)
       setRegisterAlert(true)
@@ -125,4 +125,10 @@ export function RegisterComponent() {
       </Form>
     </div>
   )
+}
+
+function getErrorMessage(error: unknown) {
+  if (typeof error === 'string') return error
+  if (error instanceof Error) return error.message
+  return '注册失败'
 }

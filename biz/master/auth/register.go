@@ -62,7 +62,7 @@ func registerUser(c *app.Context, req registerJSONRequest) (*pb.RegisterResponse
 		}, err
 	}
 
-	if !c.GetApp().GetConfig().App.EnableRegister && userCount > 0 {
+	if !registerEnabled(c) && userCount > 0 {
 		return &pb.RegisterResponse{
 			Status: &pb.Status{Code: pb.RespCode_RESP_CODE_INVALID, Message: "register is disabled"},
 		}, fmt.Errorf("register is disabled")

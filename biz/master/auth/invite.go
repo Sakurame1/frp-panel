@@ -11,7 +11,23 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const RegisterInviteRequiredSettingKey = "register_invite_required"
+const (
+	RegisterInviteRequiredSettingKey = "register_invite_required"
+	RegisterEnabledSettingKey        = "register_enabled"
+)
+
+func registerEnabled(ctx *app.Context) bool {
+	db := ctx.GetApp().GetDBManager().GetDefaultDB()
+	setting := &models.SystemSetting{}
+	err := db.Where(&models.SystemSetting{
+		Key:      RegisterEnabledSettingKey,
+		TenantID: 0,
+	}).First(setting).Error
+	if err != nil {
+		return ctx.GetApp().GetConfig().App.EnableRegister
+	}
+	return setting.Value == "true"
+}
 
 func inviteRequired(ctx *app.Context) bool {
 	db := ctx.GetApp().GetDBManager().GetDefaultDB()

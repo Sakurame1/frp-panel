@@ -54,7 +54,8 @@ type inviteUpdateRequest struct {
 }
 
 type registerSettingRequest struct {
-	InviteRequired bool `json:"invite_required"`
+	RegisterEnabled *bool `json:"register_enabled"`
+	InviteRequired  *bool `json:"invite_required"`
 }
 
 func Share(appInstance app.Application) gin.HandlerFunc {
@@ -405,7 +406,10 @@ func UpdateInvite(appInstance app.Application) gin.HandlerFunc {
 
 func GetRegisterSetting(appInstance app.Application) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		okJSON(c, gin.H{"invite_required": getInviteRequired(appInstance)})
+		okJSON(c, gin.H{
+			"register_enabled": getRegisterEnabled(appInstance),
+			"invite_required":  getInviteRequired(appInstance),
+		})
 	}
 }
 
@@ -421,21 +425,36 @@ func UpdateRegisterSetting(appInstance app.Application) gin.HandlerFunc {
 			errJSON(c, http.StatusBadRequest, err)
 			return
 		}
-		value := "true"
-		if !req.InviteRequired {
-			value = "false"
-		}
 		db := appInstance.GetDBManager().GetDefaultDB()
-		setting := &models.SystemSetting{
-			Key:      authsvc.RegisterInviteRequiredSettingKey,
-			TenantID: 0,
-			Value:    value,
+
+		if req.RegisterEnabled != nil {
+			setting := &models.SystemSetting{
+				Key:      authsvc.RegisterEnabledSettingKey,
+				TenantID: 0,
+				Value:    boolSettingValue(*req.RegisterEnabled),
+			}
+			if err := db.Save(setting).Error; err != nil {
+				errJSON(c, http.StatusInternalServerError, err)
+				return
+			}
 		}
-		if err := db.Save(setting).Error; err != nil {
-			errJSON(c, http.StatusInternalServerError, err)
-			return
+
+		if req.InviteRequired != nil {
+			setting := &models.SystemSetting{
+				Key:      authsvc.RegisterInviteRequiredSettingKey,
+				TenantID: 0,
+				Value:    boolSettingValue(*req.InviteRequired),
+			}
+			if err := db.Save(setting).Error; err != nil {
+				errJSON(c, http.StatusInternalServerError, err)
+				return
+			}
 		}
-		okJSON(c, gin.H{"invite_required": req.InviteRequired})
+
+		okJSON(c, gin.H{
+			"register_enabled": getRegisterEnabled(appInstance),
+			"invite_required":  getInviteRequired(appInstance),
+		})
 	}
 }
 
@@ -652,6 +671,24 @@ func getInviteRequired(appInstance app.Application) bool {
 		return true
 	}
 	return setting.Value != "false"
+}
+
+func getRegisterEnabled(appInstance app.Application) bool {
+	setting := &models.SystemSetting{}
+	err := appInstance.GetDBManager().GetDefaultDB().
+		Where(&models.SystemSetting{Key: authsvc.RegisterEnabledSettingKey, TenantID: 0}).
+		First(setting).Error
+	if err != nil {
+		return appInstance.GetConfig().App.EnableRegister
+	}
+	return setting.Value == "true"
+}
+
+func boolSettingValue(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }
 
 func sanitizeGroups(groups []*models.UserGroup) []*models.UserGroup {
