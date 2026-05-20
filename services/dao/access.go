@@ -120,7 +120,8 @@ func accessibleObjectIDs(ctx *app.Context, userInfo models.UserInfo, objType def
 	var ids []string
 	for _, subject := range subjects {
 		for _, allowedAction := range actions {
-			for _, policy := range enforcer.GetFilteredPolicy(0, subject, "", string(allowedAction), domain) {
+			policies, _ := enforcer.GetFilteredPolicy(0, subject, "", string(allowedAction), domain)
+			for _, policy := range policies {
 				if len(policy) < 4 {
 					continue
 				}
