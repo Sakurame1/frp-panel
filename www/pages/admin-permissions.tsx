@@ -26,6 +26,8 @@ import { toast } from 'sonner'
 const STATUS_NORMAL = 1
 const STATUS_BANNED = 2
 
+type UserStatusFilter = 'all' | 'normal' | 'banned'
+type UserRoleFilter = 'all' | 'admin' | 'normal'
 type PermissionDraft = {
   objType: string
   objID: string
@@ -41,13 +43,17 @@ const defaultPermissionDraft: PermissionDraft = {
 function AdminPermissionPanel() {
   const [invites, setInvites] = useState<InviteCode[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [selectedUserID, setSelectedUserID] = useState<number>()
   const [registerEnabled, setRegisterEnabled] = useState(false)
   const [inviteRequired, setInviteRequired] = useState(true)
   const [maxUses, setMaxUses] = useState(1)
   const [days, setDays] = useState(7)
   const [comment, setComment] = useState('')
   const [keyword, setKeyword] = useState('')
-  const [drafts, setDrafts] = useState<Record<number, PermissionDraft>>({})
+  const [roleFilter, setRoleFilter] = useState<UserRoleFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<UserStatusFilter>('all')
+  const [permissionDraft, setPermissionDraft] = useState<PermissionDraft>(defaultPermissionDraft)
+  const [profileDraft, setProfileDraft] = useState({ user_name: '', email: '' })
 
   const reloadRegistration = async () => {
     const [setting, inviteList] = await Promise.all([getRegisterSetting(), listInvites()])
@@ -57,18 +63,42 @@ function AdminPermissionPanel() {
   }
 
   const reloadUsers = async () => {
-    setUsers(await listUsers())
+    const nextUsers = await listUsers()
+    setUsers(nextUsers)
+    setSelectedUserID((current) => current ?? nextUsers[0]?.user_id)
   }
 
   useEffect(() => {
     Promise.all([reloadRegistration(), reloadUsers()]).catch((e) => toast.error(getErrorMessage(e)))
   }, [])
 
+  const selectedUser = useMemo(() => users.find((user) => user.user_id === selectedUserID) ?? users[0], [selectedUserID, users])
+
+  useEffect(() => {
+    if (!selectedUser) return
+    setProfileDraft({
+      user_name: selectedUser.user_name ?? '',
+      email: selectedUser.email ?? '',
+    })
+  }, [selectedUser])
+
+  const userSummary = useMemo(() => {
+    return {
+      total: users.length,
+      normal: users.filter((user) => user.status !== STATUS_BANNED).length,
+      banned: users.filter((user) => user.status === STATUS_BANNED).length,
+      admins: users.filter((user) => user.role === 'admin').length,
+      standard: users.filter((user) => user.role !== 'admin').length,
+    }
+  }, [users])
+
   const filteredUsers = useMemo(() => {
     const q = keyword.trim().toLowerCase()
-    if (!q) return users
-    return users.filter((user) => user.user_name?.toLowerCase().includes(q) || user.email?.toLowerCase().includes(q) || String(user.user_id).includes(q))
-  }, [keyword, users])
+    return users
+      .filter((user) => !q || user.user_name?.toLowerCase().includes(q) || user.email?.toLowerCase().includes(q) || String(user.user_id).includes(q))
+      .filter((user) => roleFilter === 'all' || user.role === roleFilter)
+      .filter((user) => statusFilter === 'all' || (statusFilter === 'banned' ? user.status === STATUS_BANNED : user.status !== STATUS_BANNED))
+  }, [keyword, roleFilter, statusFilter, users])
 
   const submitInvite = async () => {
     const expiresAt = days > 0 ? Math.floor(Date.now() / 1000) + days * 86400 : undefined
@@ -105,29 +135,23 @@ function AdminPermissionPanel() {
     toast.success('用户已更新')
   }
 
-  const updateDraft = (userID: number, patch: Partial<PermissionDraft>) => {
-    setDrafts((prev) => ({
-      ...prev,
-      [userID]: {
-        ...defaultPermissionDraft,
-        ...prev[userID],
-        ...patch,
-      },
-    }))
+  const saveProfile = async () => {
+    if (!selectedUser) return
+    await patchUser(selectedUser, profileDraft)
   }
 
-  const submitPermission = async (user: AdminUser, mode: 'grant' | 'revoke') => {
-    const draft = drafts[user.user_id] ?? defaultPermissionDraft
-    if (!draft.objID.trim()) {
+  const submitPermission = async (mode: 'grant' | 'revoke') => {
+    if (!selectedUser) return
+    if (!permissionDraft.objID.trim()) {
       toast.error('请输入资源 ID')
       return
     }
     const payload = {
-      obj_type: draft.objType,
-      obj_id: draft.objID.trim(),
+      obj_type: permissionDraft.objType,
+      obj_id: permissionDraft.objID.trim(),
       target_type: 'user' as const,
-      target_id: String(user.user_id),
-      permission: draft.permission,
+      target_id: String(selectedUser.user_id),
+      permission: permissionDraft.permission,
     }
     if (mode === 'grant') {
       await grantPermission(payload)
@@ -139,12 +163,60 @@ function AdminPermissionPanel() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl py-4">
-      <Tabs defaultValue="registration" className="space-y-4">
+    <div className="mx-auto w-full max-w-7xl py-4">
+      <Tabs defaultValue="users" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="registration">注册相关</TabsTrigger>
-          <TabsTrigger value="users">用户列表</TabsTrigger>
+          <TabsTrigger value="users">用户管理</TabsTrigger>
+          <TabsTrigger value="registration">注册与邀请</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="users" className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <Metric title="注册用户" value={userSummary.total} />
+            <Metric title="正常用户" value={userSummary.normal} />
+            <Metric title="封禁用户" value={userSummary.banned} />
+            <Metric title="管理员" value={userSummary.admins} />
+            <Metric title="标准用户" value={userSummary.standard} />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+            <Card>
+              <CardHeader>
+                <CardTitle>用户列表</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input className="max-w-xs" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索用户、邮箱或 ID" />
+                  <select className="h-9 rounded-md border bg-background px-3 text-sm" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as UserRoleFilter)}>
+                    <option value="all">全部角色</option>
+                    <option value="admin">管理员</option>
+                    <option value="normal">标准用户</option>
+                  </select>
+                  <select className="h-9 rounded-md border bg-background px-3 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as UserStatusFilter)}>
+                    <option value="all">全部状态</option>
+                    <option value="normal">正常</option>
+                    <option value="banned">已封禁</option>
+                  </select>
+                  <Button variant="outline" onClick={() => reloadUsers()}>
+                    刷新
+                  </Button>
+                </div>
+                <UserTable users={filteredUsers} selectedUserID={selectedUser?.user_id} onSelect={setSelectedUserID} />
+              </CardContent>
+            </Card>
+
+            <UserDetailPanel
+              user={selectedUser}
+              profileDraft={profileDraft}
+              permissionDraft={permissionDraft}
+              onProfileChange={setProfileDraft}
+              onPermissionDraftChange={(patch) => setPermissionDraft((prev) => ({ ...prev, ...patch }))}
+              onSaveProfile={saveProfile}
+              onPatchUser={patchUser}
+              onPermission={submitPermission}
+            />
+          </div>
+        </TabsContent>
 
         <TabsContent value="registration" className="space-y-4">
           <Card>
@@ -176,25 +248,21 @@ function AdminPermissionPanel() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        <TabsContent value="users" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>用户列表</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <Input className="max-w-xs" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索用户、邮箱或 ID" />
-                <Button variant="outline" onClick={() => reloadUsers()}>
-                  刷新
-                </Button>
-              </div>
-              <UserTable users={filteredUsers} drafts={drafts} onPatchUser={patchUser} onUpdateDraft={updateDraft} onPermission={submitPermission} />
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+function Metric({ title, value }: { title: string; value: number }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-semibold">{value}</div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -243,78 +311,126 @@ function InviteTable({ invites, onToggle }: { invites: InviteCode[]; onToggle: (
   )
 }
 
-function UserTable({
-  users,
-  drafts,
-  onPatchUser,
-  onUpdateDraft,
-  onPermission,
-}: {
-  users: AdminUser[]
-  drafts: Record<number, PermissionDraft>
-  onPatchUser: (user: AdminUser, patch: Partial<AdminUser>) => void
-  onUpdateDraft: (userID: number, patch: Partial<PermissionDraft>) => void
-  onPermission: (user: AdminUser, mode: 'grant' | 'revoke') => void
-}) {
+function UserTable({ users, selectedUserID, onSelect }: { users: AdminUser[]; selectedUserID?: number; onSelect: (userID: number) => void }) {
   return (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead className="w-16">ID</TableHead>
-          <TableHead>用户信息</TableHead>
+          <TableHead>用户</TableHead>
           <TableHead>角色</TableHead>
           <TableHead>状态</TableHead>
-          <TableHead>单用户权限</TableHead>
+          <TableHead className="text-right">操作</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {users.map((user) => {
-          const draft = drafts[user.user_id] ?? defaultPermissionDraft
-          return (
-            <TableRow key={user.user_id}>
-              <TableCell>{user.user_id}</TableCell>
-              <TableCell>
-                <div className="grid gap-2">
-                  <Input defaultValue={user.user_name ?? ''} onBlur={(e) => e.target.value !== user.user_name && onPatchUser(user, { user_name: e.target.value })} />
-                  <Input defaultValue={user.email ?? ''} onBlur={(e) => e.target.value !== user.email && onPatchUser(user, { email: e.target.value })} />
-                </div>
-              </TableCell>
-              <TableCell>
-                <select className="h-9 rounded-md border bg-background px-3 text-sm" value={user.role || 'normal'} onChange={(e) => onPatchUser(user, { role: e.target.value })}>
-                  <option value="normal">标准用户</option>
-                  <option value="admin">管理员</option>
-                </select>
-              </TableCell>
-              <TableCell>
-                <Button variant={user.status === STATUS_BANNED ? 'destructive' : 'outline'} size="sm" onClick={() => onPatchUser(user, { status: user.status === STATUS_BANNED ? STATUS_NORMAL : STATUS_BANNED })}>
-                  {user.status === STATUS_BANNED ? '解除封禁' : '封禁'}
-                </Button>
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select className="h-9 rounded-md border bg-background px-3 text-sm" value={draft.objType} onChange={(e) => onUpdateDraft(user.user_id, { objType: e.target.value })}>
-                    <option value="client">客户端</option>
-                    <option value="server">服务端</option>
-                    <option value="worker">Worker</option>
-                  </select>
-                  <Input className="w-40" value={draft.objID} onChange={(e) => onUpdateDraft(user.user_id, { objID: e.target.value })} placeholder="资源 ID" />
-                  <select className="h-9 rounded-md border bg-background px-3 text-sm" value={draft.permission} onChange={(e) => onUpdateDraft(user.user_id, { permission: e.target.value as PermissionDraft['permission'] })}>
-                    <option value="view">仅查看</option>
-                    <option value="edit">编辑</option>
-                  </select>
-                  <Button size="sm" onClick={() => onPermission(user, 'grant')}>
-                    授权
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => onPermission(user, 'revoke')}>
-                    撤销
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          )
-        })}
+        {users.map((user) => (
+          <TableRow key={user.user_id} className={user.user_id === selectedUserID ? 'bg-muted/50' : undefined}>
+            <TableCell>{user.user_id}</TableCell>
+            <TableCell>
+              <div className="font-medium">{user.user_name}</div>
+              <div className="text-xs text-muted-foreground">{user.email}</div>
+            </TableCell>
+            <TableCell>{user.role === 'admin' ? '管理员' : '标准用户'}</TableCell>
+            <TableCell>{user.status === STATUS_BANNED ? '已封禁' : '正常'}</TableCell>
+            <TableCell className="text-right">
+              <Button variant="outline" size="sm" onClick={() => onSelect(user.user_id)}>
+                管理
+              </Button>
+            </TableCell>
+          </TableRow>
+        ))}
       </TableBody>
     </Table>
+  )
+}
+
+function UserDetailPanel({
+  user,
+  profileDraft,
+  permissionDraft,
+  onProfileChange,
+  onPermissionDraftChange,
+  onSaveProfile,
+  onPatchUser,
+  onPermission,
+}: {
+  user?: AdminUser
+  profileDraft: { user_name: string; email: string }
+  permissionDraft: PermissionDraft
+  onProfileChange: (value: { user_name: string; email: string }) => void
+  onPermissionDraftChange: (patch: Partial<PermissionDraft>) => void
+  onSaveProfile: () => void
+  onPatchUser: (user: AdminUser, patch: Partial<AdminUser>) => void
+  onPermission: (mode: 'grant' | 'revoke') => void
+}) {
+  if (!user) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>用户详情</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">请选择一个用户。</CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>用户详情</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="rounded-md border p-3">
+          <div className="text-sm font-medium">{user.user_name}</div>
+          <div className="text-xs text-muted-foreground">ID {user.user_id}</div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-sm font-medium">基础信息</div>
+          <Input value={profileDraft.user_name} onChange={(e) => onProfileChange({ ...profileDraft, user_name: e.target.value })} placeholder="用户名" />
+          <Input value={profileDraft.email} onChange={(e) => onProfileChange({ ...profileDraft, email: e.target.value })} placeholder="邮箱" />
+          <Button onClick={onSaveProfile}>保存资料</Button>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-sm font-medium">账号控制</div>
+          <div className="flex flex-wrap gap-2">
+            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={user.role || 'normal'} onChange={(e) => onPatchUser(user, { role: e.target.value })}>
+              <option value="normal">标准用户</option>
+              <option value="admin">管理员</option>
+            </select>
+            <Button variant={user.status === STATUS_BANNED ? 'outline' : 'destructive'} size="sm" onClick={() => onPatchUser(user, { status: user.status === STATUS_BANNED ? STATUS_NORMAL : STATUS_BANNED })}>
+              {user.status === STATUS_BANNED ? '解除封禁' : '封禁用户'}
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-sm font-medium">单用户权限</div>
+          <div className="grid gap-2">
+            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={permissionDraft.objType} onChange={(e) => onPermissionDraftChange({ objType: e.target.value })}>
+              <option value="client">客户端</option>
+              <option value="server">服务端</option>
+              <option value="worker">Worker</option>
+            </select>
+            <Input value={permissionDraft.objID} onChange={(e) => onPermissionDraftChange({ objID: e.target.value })} placeholder="资源 ID" />
+            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={permissionDraft.permission} onChange={(e) => onPermissionDraftChange({ permission: e.target.value as PermissionDraft['permission'] })}>
+              <option value="view">仅查看</option>
+              <option value="edit">编辑</option>
+            </select>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => onPermission('grant')}>
+                授权
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => onPermission('revoke')}>
+                撤销
+              </Button>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
