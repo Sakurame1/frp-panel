@@ -6,6 +6,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build-static:
     runs-on: ubuntu-latest
@@ -35,6 +39,7 @@ jobs:
       - name: Compile server
         run: bash ./build.sh
       - uses: "marvinpinto/action-automatic-releases@latest"
+        if: github.event_name != 'pull_request'
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
           prerelease: true
@@ -42,12 +47,14 @@ jobs:
           files: |
             dist/*
       - name: Setup ko
+        if: github.event_name != 'pull_request'
         uses: ko-build/setup-ko@v0.9
         env:
           KO_DOCKER_REPO: docker.io/sakurame1/frp-panel
       - env:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+        if: github.event_name != 'pull_request'
         run: |
           echo "${password}" | ko login docker.io --username ${username} --password-stdin
           ko build ./cmd/frpp --sbom=none --bare -t alpha

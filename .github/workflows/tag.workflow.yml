@@ -4,6 +4,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build-static:
     runs-on: ubuntu-latest
