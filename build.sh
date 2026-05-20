@@ -1,4 +1,5 @@
 #!/usr/bin/env /bin/bash
+set -euo pipefail
 
 # Function to print usage
 usage() {
@@ -14,6 +15,8 @@ usage() {
 PLATFORM="all"
 BINTYPE="all"
 ARCH="all"
+SKIP_FRONTEND=false
+CURRENT=false
 
 # build variables
 BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"

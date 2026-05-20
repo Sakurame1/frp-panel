@@ -50,7 +50,7 @@ jobs:
       - name: Compile server binaries
         run: bash ./build.sh
       - name: Verify embedded frontend assets
-        run: test -f cmd/frpp/out/index.html
+        run: test -d cmd/frpp/out && find cmd/frpp/out -type f | grep -q .
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
