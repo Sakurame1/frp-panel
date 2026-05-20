@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { listClient } from '@/api/client'
 import {
   createInvite,
   getRegisterSetting,
@@ -20,6 +21,9 @@ import {
   type AdminUser,
   type InviteCode,
 } from '@/api/permission'
+import { listServer } from '@/api/server'
+import { $userInfo } from '@/store/user'
+import { useStore } from '@nanostores/react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
@@ -33,6 +37,10 @@ type PermissionDraft = {
   objID: string
   permission: 'view' | 'edit'
 }
+type ResourceOption = {
+  objID: string
+  label: string
+}
 
 const defaultPermissionDraft: PermissionDraft = {
   objType: 'client',
@@ -41,6 +49,7 @@ const defaultPermissionDraft: PermissionDraft = {
 }
 
 function AdminPermissionPanel() {
+  const userInfo = useStore($userInfo)
   const [invites, setInvites] = useState<InviteCode[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
   const [selectedUserID, setSelectedUserID] = useState<number>()
@@ -54,6 +63,7 @@ function AdminPermissionPanel() {
   const [statusFilter, setStatusFilter] = useState<UserStatusFilter>('all')
   const [permissionDraft, setPermissionDraft] = useState<PermissionDraft>(defaultPermissionDraft)
   const [profileDraft, setProfileDraft] = useState({ user_name: '', email: '' })
+  const [resourceOptions, setResourceOptions] = useState<{ clients: ResourceOption[]; servers: ResourceOption[] }>({ clients: [], servers: [] })
 
   const reloadRegistration = async () => {
     const [setting, inviteList] = await Promise.all([getRegisterSetting(), listInvites()])
@@ -68,9 +78,25 @@ function AdminPermissionPanel() {
     setSelectedUserID((current) => current ?? nextUsers[0]?.user_id)
   }
 
+  const reloadResources = async () => {
+    const [clientResp, serverResp] = await Promise.all([
+      listClient({ page: 1, pageSize: 200 }),
+      listServer({ page: 1, pageSize: 200 }),
+    ])
+    setResourceOptions({
+      clients: clientResp.clients
+        .map((client) => ({ objID: client.id ?? '', label: formatResourceLabel(client.id, client.comment) }))
+        .filter((item) => item.objID),
+      servers: serverResp.servers
+        .map((server) => ({ objID: server.id ?? '', label: formatResourceLabel(server.id, server.comment) }))
+        .filter((item) => item.objID),
+    })
+  }
+
   useEffect(() => {
-    Promise.all([reloadRegistration(), reloadUsers()]).catch((e) => toast.error(getErrorMessage(e)))
-  }, [])
+    if (userInfo?.role !== 'admin') return
+    Promise.all([reloadRegistration(), reloadUsers(), reloadResources()]).catch((e) => toast.error(getErrorMessage(e)))
+  }, [userInfo?.role])
 
   const selectedUser = useMemo(() => users.find((user) => user.user_id === selectedUserID) ?? users[0], [selectedUserID, users])
 
@@ -143,7 +169,7 @@ function AdminPermissionPanel() {
   const submitPermission = async (mode: 'grant' | 'revoke') => {
     if (!selectedUser) return
     if (!permissionDraft.objID.trim()) {
-      toast.error('请输入资源 ID')
+      toast.error('请选择要授权的机器')
       return
     }
     const payload = {
@@ -160,6 +186,14 @@ function AdminPermissionPanel() {
       await revokePermission(payload)
       toast.success('权限已撤销')
     }
+  }
+
+  if (!userInfo) {
+    return <AccessState title="正在加载账户信息" description="权限信息准备好后再显示管理面板。" />
+  }
+
+  if (userInfo.role !== 'admin') {
+    return <AccessState title="权限不足" description="只有管理员可以打开权限管理。" />
   }
 
   return (
@@ -214,6 +248,7 @@ function AdminPermissionPanel() {
               onSaveProfile={saveProfile}
               onPatchUser={patchUser}
               onPermission={submitPermission}
+              resourceOptions={resourceOptions}
             />
           </div>
         </TabsContent>
@@ -263,6 +298,19 @@ function Metric({ title, value }: { title: string; value: number }) {
         <div className="text-2xl font-semibold">{value}</div>
       </CardContent>
     </Card>
+  )
+}
+
+function AccessState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="mx-auto flex min-h-[360px] w-full max-w-3xl items-center justify-center py-8">
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">{description}</CardContent>
+      </Card>
+    </div>
   )
 }
 
@@ -349,6 +397,7 @@ function UserDetailPanel({
   user,
   profileDraft,
   permissionDraft,
+  resourceOptions,
   onProfileChange,
   onPermissionDraftChange,
   onSaveProfile,
@@ -358,12 +407,16 @@ function UserDetailPanel({
   user?: AdminUser
   profileDraft: { user_name: string; email: string }
   permissionDraft: PermissionDraft
+  resourceOptions: { clients: ResourceOption[]; servers: ResourceOption[] }
   onProfileChange: (value: { user_name: string; email: string }) => void
   onPermissionDraftChange: (patch: Partial<PermissionDraft>) => void
   onSaveProfile: () => void
   onPatchUser: (user: AdminUser, patch: Partial<AdminUser>) => void
   onPermission: (mode: 'grant' | 'revoke') => void
 }) {
+  const currentResourceOptions = permissionDraft.objType === 'server' ? resourceOptions.servers : resourceOptions.clients
+  const currentResourceName = permissionDraft.objType === 'server' ? '服务端' : '客户端'
+
   if (!user) {
     return (
       <Card>
@@ -409,12 +462,18 @@ function UserDetailPanel({
         <div className="space-y-2">
           <div className="text-sm font-medium">单用户权限</div>
           <div className="grid gap-2">
-            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={permissionDraft.objType} onChange={(e) => onPermissionDraftChange({ objType: e.target.value })}>
+            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={permissionDraft.objType} onChange={(e) => onPermissionDraftChange({ objType: e.target.value, objID: '' })}>
               <option value="client">客户端</option>
               <option value="server">服务端</option>
-              <option value="worker">Worker</option>
             </select>
-            <Input value={permissionDraft.objID} onChange={(e) => onPermissionDraftChange({ objID: e.target.value })} placeholder="资源 ID" />
+            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={permissionDraft.objID} onChange={(e) => onPermissionDraftChange({ objID: e.target.value })}>
+              <option value="">{currentResourceOptions.length ? `选择${currentResourceName}` : `暂无可授权${currentResourceName}`}</option>
+              {currentResourceOptions.map((resource) => (
+                <option key={resource.objID} value={resource.objID}>
+                  {resource.label}
+                </option>
+              ))}
+            </select>
             <select className="h-9 rounded-md border bg-background px-3 text-sm" value={permissionDraft.permission} onChange={(e) => onPermissionDraftChange({ permission: e.target.value as PermissionDraft['permission'] })}>
               <option value="view">仅查看</option>
               <option value="edit">编辑</option>
@@ -438,6 +497,11 @@ function getErrorMessage(error: unknown) {
   if (typeof error === 'string') return error
   if (error instanceof Error) return error.message
   return '操作失败'
+}
+
+function formatResourceLabel(id?: string, comment?: string) {
+  if (!id) return ''
+  return comment ? `${comment} (${id})` : id
 }
 
 export default function AdminPermissionsPage() {

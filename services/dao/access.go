@@ -62,6 +62,13 @@ func scopeOwnedOrSharedUint(db *gorm.DB, ctx *app.Context, userInfo models.UserI
 	)
 }
 
+func scopeUsableServers(db *gorm.DB, userInfo models.UserInfo) *gorm.DB {
+	return db.Where(
+		db.Where("tenant_id = ?", userInfo.GetTenantID()).
+			Or("server_id = ?", defs.DefaultServerID),
+	)
+}
+
 func canAccessResource(ctx *app.Context, userInfo models.UserInfo, objType defs.RBACObj, objID string, res ownedResource, action defs.RBACAction) error {
 	if res.tenantID != userInfo.GetTenantID() {
 		return fmt.Errorf("permission denied")

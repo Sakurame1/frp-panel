@@ -123,7 +123,7 @@ func (q *serverQuery) GetServerByServerID(userInfo models.UserInfo, serverID str
 	}
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	c := &models.Server{}
-	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).
+	err := scopeUsableServers(db, userInfo).
 		Where(&models.Server{ServerEntity: &models.ServerEntity{ServerID: serverID}}).
 		First(c).Error
 	if err != nil {
@@ -199,11 +199,7 @@ func (q *serverQuery) ListServers(userInfo models.UserInfo, page, pageSize int) 
 	offset := (page - 1) * pageSize
 
 	var servers []*models.Server
-	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).Or(&models.Server{
-		ServerEntity: &models.ServerEntity{
-			ServerID: defs.DefaultServerID,
-		},
-	}).Offset(offset).Limit(pageSize).Find(&servers).Error
+	err := scopeUsableServers(db, userInfo).Offset(offset).Limit(pageSize).Find(&servers).Error
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +218,7 @@ func (q *serverQuery) ListServersWithKeyword(userInfo models.UserInfo, page, pag
 	offset := (page - 1) * pageSize
 
 	var servers []*models.Server
-	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).
+	err := scopeUsableServers(db, userInfo).
 		Where("server_id like ?", "%"+keyword+"%").
 		Offset(offset).Limit(pageSize).Find(&servers).Error
 	if err != nil {
@@ -237,7 +233,7 @@ func (q *serverQuery) ListServersWithKeyword(userInfo models.UserInfo, page, pag
 func (q *serverQuery) CountServers(userInfo models.UserInfo) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := scopeOwnedOrShared(db.Model(&models.Server{}), q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).
+	err := scopeUsableServers(db.Model(&models.Server{}), userInfo).
 		Count(&count).Error
 	if err != nil {
 		return 0, err
@@ -248,7 +244,7 @@ func (q *serverQuery) CountServers(userInfo models.UserInfo) (int64, error) {
 func (q *serverQuery) CountServersWithKeyword(userInfo models.UserInfo, keyword string) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := scopeOwnedOrShared(db.Model(&models.Server{}), q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).
+	err := scopeUsableServers(db.Model(&models.Server{}), userInfo).
 		Where("server_id like ?", "%"+keyword+"%").Count(&count).Error
 	if err != nil {
 		return 0, err
@@ -259,7 +255,7 @@ func (q *serverQuery) CountServersWithKeyword(userInfo models.UserInfo, keyword 
 func (q *serverQuery) CountConfiguredServers(userInfo models.UserInfo) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := scopeOwnedOrShared(db.Model(&models.Server{}), q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).Not(
+	err := scopeUsableServers(db.Model(&models.Server{}), userInfo).Not(
 		&models.Server{
 			ServerEntity: &models.ServerEntity{
 				ConfigContent: []byte{},

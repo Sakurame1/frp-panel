@@ -26,7 +26,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { deleteServer } from '@/api/server'
 import { useRouter } from 'next/router'
 import { useStore } from '@nanostores/react'
-import { $frontendPreference, $platformInfo } from '@/store/user'
+import { $frontendPreference, $platformInfo, $userInfo } from '@/store/user'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { getClientsStatus } from '@/api/platform'
 import { ClientType } from '@/lib/pb/common'
@@ -330,6 +330,8 @@ export const ServerActions: React.FC<ServerItemProps> = ({ server, table }) => {
   const { t } = useTranslation()
   const router = useRouter()
   const platformInfo = useStore($platformInfo)
+  const userInfo = useStore($userInfo)
+  const isAdmin = userInfo?.role === 'admin'
 
   const removeServer = useMutation({
     mutationFn: deleteServer,
@@ -382,13 +384,15 @@ export const ServerActions: React.FC<ServerItemProps> = ({ server, table }) => {
             {t('server.actions_menu.copy_command')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => {
-              router.push({ pathname: '/serveredit', query: { serverID: server.id } })
-            }}
-          >
-            {t('server.actions_menu.edit_config')}
-          </DropdownMenuItem>
+          {isAdmin && (
+            <DropdownMenuItem
+              onClick={() => {
+                router.push({ pathname: '/serveredit', query: { serverID: server.id } })
+              }}
+            >
+              {t('server.actions_menu.edit_config')}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onClick={() => {
               try {
@@ -411,16 +415,20 @@ export const ServerActions: React.FC<ServerItemProps> = ({ server, table }) => {
           >
             {t('server.actions_menu.realtime_log')}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              router.push({ pathname: '/console', query: { serverID: server.id, clientType: ClientType.FRPS.toString() } })
-            }}
-          >
-            {t('server.actions_menu.remote_terminal')}
-          </DropdownMenuItem>
-          <DialogTrigger asChild>
-            <DropdownMenuItem className="text-destructive">{t('server.actions_menu.delete')}</DropdownMenuItem>
-          </DialogTrigger>
+          {isAdmin && (
+            <DropdownMenuItem
+              onClick={() => {
+                router.push({ pathname: '/console', query: { clientID: server.id, clientType: ClientType.FRPS.toString() } })
+              }}
+            >
+              {t('server.actions_menu.remote_terminal')}
+            </DropdownMenuItem>
+          )}
+          {isAdmin && (
+            <DialogTrigger asChild>
+              <DropdownMenuItem className="text-destructive">{t('server.actions_menu.delete')}</DropdownMenuItem>
+            </DialogTrigger>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       <DialogContent>

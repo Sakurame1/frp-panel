@@ -58,11 +58,11 @@ export const getNavItems = (t: any, role?: string) => [
     url: "/streamlog",
     icon: Scroll,
   },
-  {
+  ...(role === 'admin' ? [{
     title: t('nav.console'),
     url: "/console",
     icon: SquareTerminal,
-  },
+  }] : []),
   {
     title: t('nav.workers'),
     url: ROUTES.workers,

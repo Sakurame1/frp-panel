@@ -15,9 +15,11 @@ import LoadingCircle from '@/components/base/status'
 import { ClientStatus } from '@/lib/pb/api_master'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PlayCircle, StopCircle, RefreshCcw, Eraser, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { $userInfo } from '@/store/user'
+import { useStore } from '@nanostores/react'
 
 const TerminalComponent = dynamic(() => import('@/components/base/read-write-xterm'), {
   ssr: false
@@ -26,6 +28,7 @@ const TerminalComponent = dynamic(() => import('@/components/base/read-write-xte
 export default function ConsolePage() {
   const { t } = useTranslation();
   const router = useRouter()
+  const userInfo = useStore($userInfo)
   const [clientID, setClientID] = useState<string | undefined>(undefined)
   const [clear, setClear] = useState<number>(0)
   const [enabled, setEnabled] = useState<boolean>(false)
@@ -96,6 +99,14 @@ export default function ConsolePage() {
 
   const handleNewWindow = () => {
     window.open(`/terminal?clientType=${clientType.toString()}&clientID=${clientID}`)
+  }
+
+  if (!userInfo) {
+    return <ConsoleAccessState title="正在加载账户信息" description="权限信息准备好后再打开控制台。" />
+  }
+
+  if (userInfo.role !== 'admin') {
+    return <ConsoleAccessState title="权限不足" description="普通用户不能打开远程控制台。" />
   }
 
   return (
@@ -198,6 +209,23 @@ export default function ConsolePage() {
             </div>
           </CardContent>
         </Card>
+      </RootLayout>
+    </Providers>
+  )
+}
+
+function ConsoleAccessState({ title, description }: { title: string; description: string }) {
+  return (
+    <Providers>
+      <RootLayout mainHeader={<Header />}>
+        <div className="mx-auto flex min-h-[360px] w-full max-w-3xl items-center justify-center py-8">
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle>{title}</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">{description}</CardContent>
+          </Card>
+        </div>
       </RootLayout>
     </Providers>
   )

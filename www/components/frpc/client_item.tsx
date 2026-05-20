@@ -26,7 +26,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { deleteClient, listClient } from '@/api/client'
 import { useRouter } from 'next/router'
 import { useStore } from '@nanostores/react'
-import { $frontendPreference, $platformInfo } from '@/store/user'
+import { $frontendPreference, $platformInfo, $userInfo } from '@/store/user'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { getClientsStatus } from '@/api/platform'
 import { Client, ClientType } from '@/lib/pb/common'
@@ -366,6 +366,8 @@ export const ClientActions: React.FC<ClientItemProps> = ({ client, table }) => {
   const router = useRouter()
   const platformInfo = useStore($platformInfo)
   const frontendPreference = useStore($frontendPreference)
+  const userInfo = useStore($userInfo)
+  const isAdmin = userInfo?.role === 'admin'
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false)
 
   const removeClient = useMutation({
@@ -520,16 +522,18 @@ export const ClientActions: React.FC<ClientItemProps> = ({ client, table }) => {
           >
             {t('client.actions_menu.realtime_log')}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              router.push({
-                pathname: '/console',
-                query: { clientID: client.id, clientType: ClientType.FRPC.toString() },
-              })
-            }}
-          >
-            {t('client.actions_menu.remote_terminal')}
-          </DropdownMenuItem>
+          {isAdmin && (
+            <DropdownMenuItem
+              onClick={() => {
+                router.push({
+                  pathname: '/console',
+                  query: { clientID: client.id, clientType: ClientType.FRPC.toString() },
+                })
+              }}
+            >
+              {t('client.actions_menu.remote_terminal')}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={(e) => {

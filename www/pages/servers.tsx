@@ -5,8 +5,11 @@ import { Header } from '@/components/header'
 import { CreateServerDialog } from '@/components/frps/server_create_dialog'
 import { useState } from 'react'
 import { IdInput } from '@/components/base/id_input'
+import { $userInfo } from '@/store/user'
+import { useStore } from '@nanostores/react'
 
 export default function ServerListPage() {
+  const userInfo = useStore($userInfo)
   const [keyword, setKeyword] = useState('')
   const [triggerSearch, setTriggerSearch] = useState('')
 
@@ -16,7 +19,7 @@ export default function ServerListPage() {
         <div className="w-full">
           <div className="flex flex-1 flex-col">
             <div className="flex flex-1 flex-row mb-2 gap-2">
-              <CreateServerDialog refetchTrigger={setTriggerSearch}/>
+              {userInfo?.role === 'admin' && <CreateServerDialog refetchTrigger={setTriggerSearch}/>}
               <IdInput setKeyword={setKeyword} keyword={keyword} refetchTrigger={setTriggerSearch} />
             </div>
             <ServerList Servers={[]} Keyword={keyword} TriggerRefetch={triggerSearch} />
