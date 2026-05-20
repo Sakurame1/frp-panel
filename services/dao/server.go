@@ -118,17 +118,13 @@ func (q *serverQuery) GetServerByServerID(userInfo models.UserInfo, serverID str
 	if serverID == "" {
 		return nil, fmt.Errorf("invalid server id")
 	}
-	if userInfo.GetUserID() == defs.DefaultAdminUserID && serverID == defs.DefaultServerID {
+	if userInfo.IsAdmin() && serverID == defs.DefaultServerID {
 		return q.GetDefaultServer()
 	}
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	c := &models.Server{}
-	err := db.
-		Where(&models.Server{ServerEntity: &models.ServerEntity{
-			TenantID: userInfo.GetTenantID(),
-			UserID:   userInfo.GetUserID(),
-			ServerID: serverID,
-		}}).
+	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).
+		Where(&models.Server{ServerEntity: &models.ServerEntity{ServerID: serverID}}).
 		First(c).Error
 	if err != nil {
 		return nil, err
@@ -143,7 +139,11 @@ func (m *serverMutation) CreateServer(userInfo models.UserInfo, server *models.S
 		ServerEntity: server,
 	}
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
-	return db.Create(c).Error
+	if err := db.Create(c).Error; err != nil {
+		return err
+	}
+	grantOwnerPermissions(m.ctx, userInfo, defs.RBACObjServer, server.ServerID)
+	return nil
 }
 
 func (m *serverMutation) DeleteServer(userInfo models.UserInfo, serverID string) error {
@@ -151,36 +151,43 @@ func (m *serverMutation) DeleteServer(userInfo models.UserInfo, serverID string)
 		return fmt.Errorf("invalid server id")
 	}
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
-	return db.Unscoped().Where(
-		&models.Server{
-			ServerEntity: &models.ServerEntity{
-				TenantID: userInfo.GetTenantID(),
-				UserID:   userInfo.GetUserID(),
-			},
-		},
-	).Delete(&models.Server{
-		ServerEntity: &models.ServerEntity{
-			ServerID: serverID,
-		},
-	}).Error
+	server := &models.Server{}
+	if err := db.Where(&models.Server{ServerEntity: &models.ServerEntity{ServerID: serverID}}).First(server).Error; err != nil {
+		return err
+	}
+	if err := canAccessResource(m.ctx, userInfo, defs.RBACObjServer, serverID, ownedResource{
+		tenantID: server.TenantID,
+		userID:   server.UserID,
+	}, defs.RBACActionEdit); err != nil {
+		return err
+	}
+	if err := db.Unscoped().Delete(&models.Server{
+		ServerEntity: &models.ServerEntity{ServerID: serverID},
+	}).Error; err != nil {
+		return err
+	}
+	revokeResourcePermissions(m.ctx, defs.RBACObjServer, serverID, userInfo.GetTenantID())
+	return nil
 }
 
 func (m *serverMutation) UpdateServer(userInfo models.UserInfo, server *models.ServerEntity) error {
-	c := &models.Server{
-		ServerEntity: server,
-	}
-	if userInfo.GetUserID() == defs.DefaultAdminUserID && server.ServerID == defs.DefaultServerID {
-		return m.UpdateDefaultServer(c)
+	if userInfo.IsAdmin() && server.ServerID == defs.DefaultServerID {
+		return m.UpdateDefaultServer(&models.Server{ServerEntity: server})
 	}
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
-	return db.Where(
-		&models.Server{
-			ServerEntity: &models.ServerEntity{
-				UserID:   userInfo.GetUserID(),
-				TenantID: userInfo.GetTenantID(),
-			},
-		},
-	).Save(c).Error
+	old := &models.Server{}
+	if err := db.Where(&models.Server{ServerEntity: &models.ServerEntity{ServerID: server.ServerID}}).First(old).Error; err != nil {
+		return err
+	}
+	if err := canAccessResource(m.ctx, userInfo, defs.RBACObjServer, server.ServerID, ownedResource{
+		tenantID: old.TenantID,
+		userID:   old.UserID,
+	}, defs.RBACActionEdit); err != nil {
+		return err
+	}
+	server.UserID = old.UserID
+	server.TenantID = old.TenantID
+	return db.Save(&models.Server{ServerEntity: server}).Error
 }
 
 func (q *serverQuery) ListServers(userInfo models.UserInfo, page, pageSize int) ([]*models.ServerEntity, error) {
@@ -192,14 +199,7 @@ func (q *serverQuery) ListServers(userInfo models.UserInfo, page, pageSize int) 
 	offset := (page - 1) * pageSize
 
 	var servers []*models.Server
-	err := db.Where(
-		&models.Server{
-			ServerEntity: &models.ServerEntity{
-				UserID:   userInfo.GetUserID(),
-				TenantID: userInfo.GetTenantID(),
-			},
-		},
-	).Or(&models.Server{
+	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).Or(&models.Server{
 		ServerEntity: &models.ServerEntity{
 			ServerID: defs.DefaultServerID,
 		},
@@ -222,14 +222,8 @@ func (q *serverQuery) ListServersWithKeyword(userInfo models.UserInfo, page, pag
 	offset := (page - 1) * pageSize
 
 	var servers []*models.Server
-	err := db.Where(
-		&models.Server{
-			ServerEntity: &models.ServerEntity{
-				UserID:   userInfo.GetUserID(),
-				TenantID: userInfo.GetTenantID(),
-			},
-		},
-	).Where("server_id like ?", "%"+keyword+"%").
+	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).
+		Where("server_id like ?", "%"+keyword+"%").
 		Offset(offset).Limit(pageSize).Find(&servers).Error
 	if err != nil {
 		return nil, err
@@ -243,14 +237,8 @@ func (q *serverQuery) ListServersWithKeyword(userInfo models.UserInfo, page, pag
 func (q *serverQuery) CountServers(userInfo models.UserInfo) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := db.Model(&models.Server{}).Where(
-		&models.Server{
-			ServerEntity: &models.ServerEntity{
-				UserID:   userInfo.GetUserID(),
-				TenantID: userInfo.GetTenantID(),
-			},
-		},
-	).Count(&count).Error
+	err := scopeOwnedOrShared(db.Model(&models.Server{}), q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).
+		Count(&count).Error
 	if err != nil {
 		return 0, err
 	}
@@ -260,14 +248,8 @@ func (q *serverQuery) CountServers(userInfo models.UserInfo) (int64, error) {
 func (q *serverQuery) CountServersWithKeyword(userInfo models.UserInfo, keyword string) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := db.Model(&models.Server{}).Where(
-		&models.Server{
-			ServerEntity: &models.ServerEntity{
-				UserID:   userInfo.GetUserID(),
-				TenantID: userInfo.GetTenantID(),
-			},
-		},
-	).Where("server_id like ?", "%"+keyword+"%").Count(&count).Error
+	err := scopeOwnedOrShared(db.Model(&models.Server{}), q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).
+		Where("server_id like ?", "%"+keyword+"%").Count(&count).Error
 	if err != nil {
 		return 0, err
 	}
@@ -277,14 +259,7 @@ func (q *serverQuery) CountServersWithKeyword(userInfo models.UserInfo, keyword 
 func (q *serverQuery) CountConfiguredServers(userInfo models.UserInfo) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := db.Model(&models.Server{}).Where(
-		&models.Server{
-			ServerEntity: &models.ServerEntity{
-				UserID:   userInfo.GetUserID(),
-				TenantID: userInfo.GetTenantID(),
-			},
-		},
-	).Not(
+	err := scopeOwnedOrShared(db.Model(&models.Server{}), q.ctx, userInfo, defs.RBACObjServer, "server_id", defs.RBACActionView).Not(
 		&models.Server{
 			ServerEntity: &models.ServerEntity{
 				ConfigContent: []byte{},

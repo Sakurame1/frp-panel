@@ -20,6 +20,7 @@ export const RegisterSchema = z.object({
   username: ZodStringSchema,
   password: ZodStringSchema,
   email: ZodEmailSchema,
+  inviteCode: z.string().trim().optional(),
 })
 
 export function RegisterComponent() {
@@ -93,6 +94,18 @@ export function RegisterComponent() {
               <FormItem>
                 <FormControl>
                   <Input type="password" placeholder={t('auth.passwordPlaceholder')} {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="inviteCode"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <Input type="text" placeholder={t('auth.inviteCodePlaceholder', 'Invite code')} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

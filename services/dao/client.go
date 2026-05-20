@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/VaalaCat/frp-panel/defs"
 	"github.com/VaalaCat/frp-panel/models"
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -26,7 +27,6 @@ type ClientQuery interface {
 	GetClientIDsInShadowByClientID(userInfo models.UserInfo, clientID string) ([]string, error)
 	AdminGetClientIDsInShadowByClientID(clientID string) ([]string, error)
 }
-
 type ClientMutation interface {
 	CreateClient(userInfo models.UserInfo, client *models.ClientEntity) error
 	DeleteClient(userInfo models.UserInfo, clientID string) error
@@ -83,12 +83,8 @@ func (q *clientQuery) GetClientByClientID(userInfo models.UserInfo, clientID str
 	}
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	c := &models.Client{}
-	err := db.
-		Where(&models.Client{ClientEntity: &models.ClientEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-			ClientID: clientID,
-		}}).
+	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
+		Where(&models.Client{ClientEntity: &models.ClientEntity{ClientID: clientID}}).
 		First(c).Error
 	if err != nil {
 		return nil, err
@@ -103,7 +99,8 @@ func (q *clientQuery) GetClientsByClientIDs(userInfo models.UserInfo, clientIDs 
 
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	cs := []*models.Client{}
-	err := db.Where("client_id IN ?", clientIDs).Find(&cs).Error
+	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
+		Where("client_id IN ?", clientIDs).Find(&cs).Error
 	if err != nil {
 		return nil, err
 	}
@@ -131,11 +128,7 @@ func (q *clientQuery) GetClientByFilter(userInfo models.UserInfo, client *models
 	}
 	c := &models.Client{}
 
-	err := db.
-		Where(&models.Client{ClientEntity: &models.ClientEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-		}}).
+	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
 		Where(filter).
 		First(c).Error
 	if err != nil {
@@ -168,7 +161,11 @@ func (m *clientMutation) CreateClient(userInfo models.UserInfo, client *models.C
 		ClientEntity: client,
 	}
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
-	return db.Create(c).Error
+	if err := db.Create(c).Error; err != nil {
+		return err
+	}
+	grantOwnerPermissions(m.ctx, userInfo, defs.RBACObjClient, client.ClientID)
+	return nil
 }
 
 func (m *clientMutation) DeleteClient(userInfo models.UserInfo, clientID string) error {
@@ -176,32 +173,46 @@ func (m *clientMutation) DeleteClient(userInfo models.UserInfo, clientID string)
 		return fmt.Errorf("invalid client id")
 	}
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
-	return db.Unscoped().Where(&models.Client{
+	client := &models.Client{}
+	if err := db.Where(&models.Client{ClientEntity: &models.ClientEntity{ClientID: clientID}}).First(client).Error; err != nil {
+		return err
+	}
+	if err := canAccessResource(m.ctx, userInfo, defs.RBACObjClient, clientID, ownedResource{
+		tenantID: client.TenantID,
+		userID:   client.UserID,
+	}, defs.RBACActionEdit); err != nil {
+		return err
+	}
+	if err := db.Unscoped().Where(&models.Client{
 		ClientEntity: &models.ClientEntity{
 			ClientID: clientID,
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
 		},
 	}).Or(&models.Client{
 		ClientEntity: &models.ClientEntity{
 			OriginClientID: clientID,
-			UserID:         userInfo.GetUserID(),
-			TenantID:       userInfo.GetTenantID(),
 		},
-	}).Delete(&models.Client{}).Error
+	}).Delete(&models.Client{}).Error; err != nil {
+		return err
+	}
+	revokeResourcePermissions(m.ctx, defs.RBACObjClient, clientID, userInfo.GetTenantID())
+	return nil
 }
 
 func (m *clientMutation) UpdateClient(userInfo models.UserInfo, client *models.ClientEntity) error {
-	c := &models.Client{
-		ClientEntity: client,
-	}
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
-	return db.Where(&models.Client{
-		ClientEntity: &models.ClientEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-		},
-	}).Save(c).Error
+	old := &models.Client{}
+	if err := db.Where(&models.Client{ClientEntity: &models.ClientEntity{ClientID: client.ClientID}}).First(old).Error; err != nil {
+		return err
+	}
+	if err := canAccessResource(m.ctx, userInfo, defs.RBACObjClient, client.ClientID, ownedResource{
+		tenantID: old.TenantID,
+		userID:   old.UserID,
+	}, defs.RBACActionEdit); err != nil {
+		return err
+	}
+	client.UserID = old.UserID
+	client.TenantID = old.TenantID
+	return db.Save(&models.Client{ClientEntity: client}).Error
 }
 
 func (q *clientQuery) ListClients(userInfo models.UserInfo, page, pageSize int) ([]*models.ClientEntity, error) {
@@ -213,12 +224,7 @@ func (q *clientQuery) ListClients(userInfo models.UserInfo, page, pageSize int) 
 	offset := (page - 1) * pageSize
 
 	var clients []*models.Client
-	err := db.Where(&models.Client{
-		ClientEntity: &models.ClientEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-		},
-	}).
+	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
 		Where(
 			db.Where(
 				normalClientFilter(db),
@@ -234,8 +240,8 @@ func (q *clientQuery) ListClients(userInfo models.UserInfo, page, pageSize int) 
 }
 
 func (q *clientQuery) ListClientsWithKeyword(userInfo models.UserInfo, page, pageSize int, keyword string) ([]*models.ClientEntity, error) {
-	// 只获取没shadow且config有东西
-	// 或isShadow的client
+	// 鍙幏鍙栨病shadow涓攃onfig鏈変笢瑗?
+	// 鎴杋sShadow鐨刢lient
 	if page < 1 || pageSize < 1 || len(keyword) == 0 {
 		return nil, fmt.Errorf("invalid page or page size or keyword")
 	}
@@ -244,11 +250,8 @@ func (q *clientQuery) ListClientsWithKeyword(userInfo models.UserInfo, page, pag
 	offset := (page - 1) * pageSize
 
 	var clients []*models.Client
-	err := db.Where("client_id like ?", "%"+keyword+"%").
-		Where(&models.Client{ClientEntity: &models.ClientEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-		}}).
+	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
+		Where("client_id like ?", "%"+keyword+"%").
 		Where(normalClientFilter(db)).
 		Offset(offset).Limit(pageSize).Find(&clients).Error
 	if err != nil {
@@ -263,12 +266,8 @@ func (q *clientQuery) ListClientsWithKeyword(userInfo models.UserInfo, page, pag
 func (q *clientQuery) GetAllClients(userInfo models.UserInfo) ([]*models.ClientEntity, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var clients []*models.Client
-	err := db.Where(&models.Client{
-		ClientEntity: &models.ClientEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-		},
-	}).Find(&clients).Error
+	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
+		Find(&clients).Error
 	if err != nil {
 		return nil, err
 	}
@@ -281,12 +280,7 @@ func (q *clientQuery) GetAllClients(userInfo models.UserInfo) ([]*models.ClientE
 func (q *clientQuery) CountClients(userInfo models.UserInfo) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := db.Model(&models.Client{}).Where(&models.Client{
-		ClientEntity: &models.ClientEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-		},
-	}).
+	err := scopeOwnedOrShared(db.Model(&models.Client{}), q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
 		Where(normalClientFilter(db)).Count(&count).Error
 	if err != nil {
 		return 0, err
@@ -297,12 +291,7 @@ func (q *clientQuery) CountClients(userInfo models.UserInfo) (int64, error) {
 func (q *clientQuery) CountClientsWithKeyword(userInfo models.UserInfo, keyword string) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := db.Model(&models.Client{}).Where(&models.Client{
-		ClientEntity: &models.ClientEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-		},
-	}).
+	err := scopeOwnedOrShared(db.Model(&models.Client{}), q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
 		Where(normalClientFilter(db)).Where("client_id like ?", "%"+keyword+"%").Count(&count).Error
 	if err != nil {
 		return 0, err
@@ -313,12 +302,7 @@ func (q *clientQuery) CountClientsWithKeyword(userInfo models.UserInfo, keyword 
 func (q *clientQuery) CountConfiguredClients(userInfo models.UserInfo) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := db.Model(&models.Client{}).
-		Where(&models.Client{
-			ClientEntity: &models.ClientEntity{
-				UserID:   userInfo.GetUserID(),
-				TenantID: userInfo.GetTenantID(),
-			}}).
+	err := scopeOwnedOrShared(db.Model(&models.Client{}), q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
 		Where(normalClientFilter(db)).
 		Count(&count).Error
 	if err != nil {
@@ -385,9 +369,9 @@ func (m *clientMutation) AdminUpdateClientLastSeen(clientID string) error {
 }
 
 func normalClientFilter(db *gorm.DB) *gorm.DB {
-	// 1. 没shadow过的老client
-	// 2. shadow过的shadow client
-	// 3. 非临时节点
+	// 1. 娌hadow杩囩殑鑰乧lient
+	// 2. shadow杩囩殑shadow client
+	// 3. 闈炰复鏃惰妭鐐?
 	return db.Where(
 		db.Where("origin_client_id is NULL").
 			Or("is_shadow = ?", true).

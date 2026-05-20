@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/VaalaCat/frp-panel/common"
+	"github.com/VaalaCat/frp-panel/defs"
 	"github.com/VaalaCat/frp-panel/pb"
 	"github.com/VaalaCat/frp-panel/services/app"
+	"github.com/VaalaCat/frp-panel/services/dao"
 	"github.com/VaalaCat/frp-panel/services/rpc"
 	"github.com/VaalaCat/frp-panel/utils/logger"
 	"github.com/fatedier/golib/log"
@@ -41,6 +43,11 @@ func ptyHandler(c *gin.Context, appInstance app.Application) {
 	clientID := c.Param("clientID")
 	if len(clientID) == 0 {
 		logger.Logger(c).Errorf("invalid client id")
+		webConn.Close()
+		return
+	}
+	if err := dao.CanAccessClient(app.NewContext(c, appInstance), common.GetUserInfo(c), clientID, defs.RBACActionEdit); err != nil {
+		logger.Logger(c).WithError(err).Errorf("user has no edit permission for client: [%s]", clientID)
 		webConn.Close()
 		return
 	}

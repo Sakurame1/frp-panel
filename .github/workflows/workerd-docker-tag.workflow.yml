@@ -35,7 +35,7 @@ jobs:
       - name: Setup ko
         uses: ko-build/setup-ko@v0.9
         env:
-          KO_DOCKER_REPO: docker.io/vaalacat/frp-panel
+          KO_DOCKER_REPO: docker.io/sakurame1/frp-panel
       - name: Build image with ko
         env:
           username: ${{ secrets.DOCKERHUB_USERNAME }}

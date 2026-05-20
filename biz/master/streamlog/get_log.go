@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	"github.com/VaalaCat/frp-panel/common"
+	"github.com/VaalaCat/frp-panel/defs"
 	"github.com/VaalaCat/frp-panel/pb"
 	"github.com/VaalaCat/frp-panel/services/app"
+	"github.com/VaalaCat/frp-panel/services/dao"
 	"github.com/VaalaCat/frp-panel/services/rpc"
 	"github.com/VaalaCat/frp-panel/utils/logger"
 	"github.com/gin-gonic/gin"
@@ -29,6 +31,10 @@ func getLogHander(c *gin.Context, appInstance app.Application) {
 
 	if id == "" {
 		c.JSON(http.StatusBadRequest, common.Err("id is empty"))
+		return
+	}
+	if err := dao.CanAccessClient(app.NewContext(c, appInstance), common.GetUserInfo(c), id, defs.RBACActionView); err != nil {
+		c.JSON(http.StatusForbidden, common.Err("permission denied"))
 		return
 	}
 

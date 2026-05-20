@@ -9,8 +9,17 @@ export const login = async (req: LoginRequest) => {
   return LoginResponse.fromJson((res.data as BaseResponse).body)
 }
 
-export const register = async (req: RegisterRequest) => {
-  const res = await http.post(API_PATH + '/auth/register', RegisterRequest.toJson(req))
+export type RegisterWithInviteRequest = RegisterRequest & {
+  inviteCode?: string
+}
+
+export const register = async (req: RegisterWithInviteRequest) => {
+  const res = await http.post(API_PATH + '/auth/register', {
+    username: req.username,
+    password: req.password,
+    email: req.email,
+    invite_code: req.inviteCode,
+  })
   return RegisterResponse.fromJson((res.data as BaseResponse).body)
 }
 

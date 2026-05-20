@@ -61,7 +61,7 @@ func AuthCtx(appInstance app.Application) func(*gin.Context) {
 
 func AuthAdmin(c *gin.Context) {
 	u := common.GetUserInfo(c)
-	if u != nil && u.GetRole() == defs.UserRole_Admin {
+	if u == nil || u.GetRole() != defs.UserRole_Admin {
 		common.ErrUnAuthorized(c, "permission denied")
 		c.Abort()
 		return

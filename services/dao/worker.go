@@ -3,6 +3,7 @@ package dao
 import (
 	"fmt"
 
+	"github.com/VaalaCat/frp-panel/defs"
 	"github.com/VaalaCat/frp-panel/models"
 )
 
@@ -35,19 +36,31 @@ func (m *workerMutation) CreateWorker(userInfo models.UserInfo, worker *models.W
 
 	worker.WorkerModel = nil
 
-	return db.Create(worker).Error
+	if err := db.Create(worker).Error; err != nil {
+		return err
+	}
+	grantOwnerPermissions(m.ctx, userInfo, defs.RBACObjWorker, worker.ID)
+	return nil
 }
 
 func (m *workerMutation) DeleteWorker(userInfo models.UserInfo, workerID string) error {
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
 
-	return db.Unscoped().Where(&models.Worker{
-		WorkerEntity: &models.WorkerEntity{
-			ID:       workerID,
-			UserId:   uint32(userInfo.GetUserID()),
-			TenantId: uint32(userInfo.GetTenantID()),
-		},
-	}).Delete(&models.Worker{}).Error
+	worker := &models.Worker{}
+	if err := db.Where(&models.Worker{WorkerEntity: &models.WorkerEntity{ID: workerID}}).First(worker).Error; err != nil {
+		return err
+	}
+	if err := canAccessResource(m.ctx, userInfo, defs.RBACObjWorker, workerID, ownedResource{
+		tenantID: int(worker.TenantId),
+		userID:   int(worker.UserId),
+	}, defs.RBACActionEdit); err != nil {
+		return err
+	}
+	if err := db.Unscoped().Delete(&models.Worker{WorkerEntity: &models.WorkerEntity{ID: workerID}}).Error; err != nil {
+		return err
+	}
+	revokeResourcePermissions(m.ctx, defs.RBACObjWorker, workerID, userInfo.GetTenantID())
+	return nil
 }
 
 func (m *workerMutation) UpdateWorker(userInfo models.UserInfo, worker *models.Worker) error {
@@ -59,12 +72,22 @@ func (m *workerMutation) UpdateWorker(userInfo models.UserInfo, worker *models.W
 	}
 
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
+	old := &models.Worker{}
+	if err := db.Where(&models.Worker{WorkerEntity: &models.WorkerEntity{ID: worker.ID}}).First(old).Error; err != nil {
+		return err
+	}
+	if err := canAccessResource(m.ctx, userInfo, defs.RBACObjWorker, worker.ID, ownedResource{
+		tenantID: int(old.TenantId),
+		userID:   int(old.UserId),
+	}, defs.RBACActionEdit); err != nil {
+		return err
+	}
+	worker.UserId = old.UserId
+	worker.TenantId = old.TenantId
 
 	if err := db.Unscoped().Model(&models.Worker{
 		WorkerEntity: &models.WorkerEntity{
 			ID:       worker.ID,
-			UserId:   uint32(userInfo.GetUserID()),
-			TenantId: uint32(userInfo.GetTenantID()),
 		},
 	}).Association("Clients").Unscoped().Clear(); err != nil {
 		return err
@@ -72,9 +95,7 @@ func (m *workerMutation) UpdateWorker(userInfo models.UserInfo, worker *models.W
 
 	return db.Where(&models.Worker{
 		WorkerEntity: &models.WorkerEntity{
-			ID:       worker.ID,
-			UserId:   uint32(userInfo.GetUserID()),
-			TenantId: uint32(userInfo.GetTenantID()),
+			ID: worker.ID,
 		},
 	}).Save(worker).Error
 }
@@ -82,13 +103,9 @@ func (m *workerMutation) UpdateWorker(userInfo models.UserInfo, worker *models.W
 func (q *workerQuery) GetWorkerByWorkerID(userInfo models.UserInfo, workerID string) (*models.Worker, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	w := &models.Worker{}
-	err := db.Where(&models.Worker{
-		WorkerEntity: &models.WorkerEntity{
-			ID:       workerID,
-			UserId:   uint32(userInfo.GetUserID()),
-			TenantId: uint32(userInfo.GetTenantID()),
-		},
-	}).Preload("Clients").First(w).Error
+	err := scopeOwnedOrSharedUint(db, q.ctx, userInfo, defs.RBACObjWorker, "id", defs.RBACActionView).
+		Where(&models.Worker{WorkerEntity: &models.WorkerEntity{ID: workerID}}).
+		Preload("Clients").First(w).Error
 	if err != nil {
 		return nil, err
 	}
@@ -104,12 +121,8 @@ func (q *workerQuery) ListWorkers(userInfo models.UserInfo, page, pageSize int) 
 	offset := (page - 1) * pageSize
 
 	var workers []*models.Worker
-	err := db.Where(&models.Worker{
-		WorkerEntity: &models.WorkerEntity{
-			UserId:   uint32(userInfo.GetUserID()),
-			TenantId: uint32(userInfo.GetTenantID()),
-		},
-	}).Offset(offset).Limit(pageSize).Preload("Clients").Find(&workers).Error
+	err := scopeOwnedOrSharedUint(db, q.ctx, userInfo, defs.RBACObjWorker, "id", defs.RBACActionView).
+		Offset(offset).Limit(pageSize).Preload("Clients").Find(&workers).Error
 	if err != nil {
 		return nil, err
 	}
@@ -141,13 +154,9 @@ func (q *workerQuery) ListWorkersWithKeyword(userInfo models.UserInfo, page, pag
 	offset := (page - 1) * pageSize
 
 	var workers []*models.Worker
-	err := db.Where("name like ?", "%"+keyword+"%").
-		Where(&models.Worker{
-			WorkerEntity: &models.WorkerEntity{
-				UserId:   uint32(userInfo.GetUserID()),
-				TenantId: uint32(userInfo.GetTenantID()),
-			},
-		}).Offset(offset).Limit(pageSize).Preload("Clients").Find(&workers).Error
+	err := scopeOwnedOrSharedUint(db, q.ctx, userInfo, defs.RBACObjWorker, "id", defs.RBACActionView).
+		Where("name like ?", "%"+keyword+"%").
+		Offset(offset).Limit(pageSize).Preload("Clients").Find(&workers).Error
 	if err != nil {
 		return nil, err
 	}
@@ -158,12 +167,8 @@ func (q *workerQuery) ListWorkersWithKeyword(userInfo models.UserInfo, page, pag
 func (q *workerQuery) CountWorkers(userInfo models.UserInfo) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := db.Model(&models.Worker{}).Where(&models.Worker{
-		WorkerEntity: &models.WorkerEntity{
-			UserId:   uint32(userInfo.GetUserID()),
-			TenantId: uint32(userInfo.GetTenantID()),
-		},
-	}).Count(&count).Error
+	err := scopeOwnedOrSharedUint(db.Model(&models.Worker{}), q.ctx, userInfo, defs.RBACObjWorker, "id", defs.RBACActionView).
+		Count(&count).Error
 	if err != nil {
 		return 0, err
 	}
@@ -173,13 +178,8 @@ func (q *workerQuery) CountWorkers(userInfo models.UserInfo) (int64, error) {
 func (q *workerQuery) CountWorkersWithKeyword(userInfo models.UserInfo, keyword string) (int64, error) {
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := db.Model(&models.Worker{}).Where("name like ?", "%"+keyword+"%").
-		Where(&models.Worker{
-			WorkerEntity: &models.WorkerEntity{
-				UserId:   uint32(userInfo.GetUserID()),
-				TenantId: uint32(userInfo.GetTenantID()),
-			},
-		}).Count(&count).Error
+	err := scopeOwnedOrSharedUint(db.Model(&models.Worker{}), q.ctx, userInfo, defs.RBACObjWorker, "id", defs.RBACActionView).
+		Where("name like ?", "%"+keyword+"%").Count(&count).Error
 	if err != nil {
 		return 0, err
 	}

@@ -55,7 +55,7 @@ export function AppSidebar({ ...props }: AppSidebarProps) {
             <span className="truncate text-xs font-mono">{t('app.subtitle')}</span>
           </div>
         </SidebarMenuButton>
-        <NavMain items={getNavItems(t)} />
+        <NavMain items={getNavItems(t, userInfo?.role)} />
       </SidebarHeader>
       <SidebarContent>
         {props.children}

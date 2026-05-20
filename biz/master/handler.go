@@ -5,6 +5,7 @@ import (
 
 	"github.com/VaalaCat/frp-panel/biz/master/auth"
 	"github.com/VaalaCat/frp-panel/biz/master/client"
+	"github.com/VaalaCat/frp-panel/biz/master/permission"
 	"github.com/VaalaCat/frp-panel/biz/master/platform"
 	"github.com/VaalaCat/frp-panel/biz/master/proxy"
 	"github.com/VaalaCat/frp-panel/biz/master/server"
@@ -32,7 +33,7 @@ func ConfigureRouter(appInstance app.Application, router *gin.Engine) {
 	api := router.Group("/api")
 	api.POST("/v1/auth/cert", app.Wrapper(appInstance, auth.GetClientCert))
 	api.POST("/v1/auth/login", app.Wrapper(appInstance, auth.LoginHandler))
-	api.POST("/v1/auth/register", app.Wrapper(appInstance, auth.RegisterHandler))
+	api.POST("/v1/auth/register", auth.RegisterGinHandler(appInstance))
 	api.GET("/v1/auth/logout", auth.RemoveJWTHandler(appInstance))
 
 	v1 := api.Group("/v1", middleware.JWTAuth(appInstance), middleware.AuthCtx(appInstance), middleware.RBAC(appInstance))
@@ -99,6 +100,24 @@ func ConfigureRouter(appInstance app.Application, router *gin.Engine) {
 			workerHandler.POST("/redeploy", app.Wrapper(appInstance, worker.RedeployWorker))
 			workerHandler.POST("/create_ingress", app.Wrapper(appInstance, worker.CreateWorkerIngress))
 			workerHandler.POST("/get_ingress", app.Wrapper(appInstance, worker.GetWorkerIngress))
+		}
+		permissionRouter := v1.Group("/permission")
+		{
+			permissionRouter.POST("/grant", permission.Share(appInstance))
+			permissionRouter.POST("/share", permission.Share(appInstance))
+			permissionRouter.POST("/revoke", permission.Revoke(appInstance))
+			permissionRouter.POST("/user/list", permission.ListUsers(appInstance))
+			permissionRouter.POST("/user/update", permission.UpdateUser(appInstance))
+			permissionRouter.POST("/group/create", permission.CreateGroup(appInstance))
+			permissionRouter.POST("/group/delete", permission.DeleteGroup(appInstance))
+			permissionRouter.POST("/group/list", permission.ListGroups(appInstance))
+			permissionRouter.POST("/group/member/add", permission.AddGroupMember(appInstance))
+			permissionRouter.POST("/group/member/remove", permission.RemoveGroupMember(appInstance))
+			permissionRouter.POST("/invite/create", permission.CreateInvite(appInstance))
+			permissionRouter.POST("/invite/list", permission.ListInvites(appInstance))
+			permissionRouter.POST("/invite/update", permission.UpdateInvite(appInstance))
+			permissionRouter.POST("/register-setting/get", permission.GetRegisterSetting(appInstance))
+			permissionRouter.POST("/register-setting/update", permission.UpdateRegisterSetting(appInstance))
 		}
 
 		wgRouter := v1.Group("/wg")

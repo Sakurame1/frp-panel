@@ -49,6 +49,12 @@ func (dbm *dbManagerImpl) Init() {
 			if err := db.AutoMigrate(&UserGroup{}); err != nil {
 				logger.Logger(ctx).WithError(err).Fatalf("cannot init db table [%s]", (&UserGroup{}).TableName())
 			}
+			if err := db.AutoMigrate(&InviteCode{}); err != nil {
+				logger.Logger(ctx).WithError(err).Fatalf("cannot init db table [%s]", (&InviteCode{}).TableName())
+			}
+			if err := db.AutoMigrate(&SystemSetting{}); err != nil {
+				logger.Logger(ctx).WithError(err).Fatalf("cannot init db table [%s]", (&SystemSetting{}).TableName())
+			}
 			if err := db.AutoMigrate(&WireGuard{}); err != nil {
 				logger.Logger(ctx).WithError(err).Fatalf("cannot init db table [%s]", (&WireGuard{}).TableName())
 			}

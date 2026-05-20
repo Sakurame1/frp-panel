@@ -7,6 +7,7 @@ import {
   Cable,
   SquareFunction,
   Network,
+  ShieldCheck,
 } from "lucide-react"
 import { TbBuildingTunnel } from "react-icons/tb"
 import { ROUTES } from "@/lib/routes"
@@ -20,7 +21,7 @@ export const teams = [
   },
 ]
 
-export const getNavItems = (t: any) => [
+export const getNavItems = (t: any, role?: string) => [
   {
     title: t('nav.clients'),
     url: "/clients",
@@ -90,4 +91,9 @@ export const getNavItems = (t: any) => [
       },
     ],
   },
+  ...(role === 'admin' ? [{
+    title: '权限管理',
+    url: "/admin-permissions",
+    icon: ShieldCheck,
+  }] : []),
 ]

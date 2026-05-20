@@ -7,6 +7,9 @@ const (
 	RBACActionRead   RBACAction = "read"
 	RBACActionUpdate RBACAction = "update"
 	RBACActionDelete RBACAction = "delete"
+	RBACActionShare  RBACAction = "share"
+	RBACActionView   RBACAction = "view"
+	RBACActionEdit   RBACAction = "edit"
 )
 
 type RBACObj string
@@ -14,6 +17,7 @@ type RBACObj string
 const (
 	RBACObjServer RBACObj = "server"
 	RBACObjClient RBACObj = "client"
+	RBACObjWorker RBACObj = "worker"
 	RBACObjUser   RBACObj = "user"
 	RBACObjGroup  RBACObj = "group"
 	RBACObjAPI    RBACObj = "api"

@@ -14,4 +14,4 @@ g = _, _, dom
 e = some(where (p.eft == allow))
 
 [matchers]
-m = g(r.sub, p.sub, r.dom) && r.dom == p.dom && r.obj == p.obj && r.act == p.act`
+m = (r.sub == p.sub || g(r.sub, p.sub, r.dom)) && r.dom == p.dom && r.obj == p.obj && r.act == p.act`
