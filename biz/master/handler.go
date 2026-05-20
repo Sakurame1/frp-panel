@@ -106,6 +106,7 @@ func ConfigureRouter(appInstance app.Application, router *gin.Engine) {
 			permissionRouter.POST("/grant", permission.Share(appInstance))
 			permissionRouter.POST("/share", permission.Share(appInstance))
 			permissionRouter.POST("/revoke", permission.Revoke(appInstance))
+			permissionRouter.POST("/resource/permissions", permission.ListResourcePermissions(appInstance))
 			permissionRouter.POST("/user/list", permission.ListUsers(appInstance))
 			permissionRouter.POST("/user/update", permission.UpdateUser(appInstance))
 			permissionRouter.POST("/group/create", permission.CreateGroup(appInstance))

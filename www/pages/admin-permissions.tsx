@@ -12,7 +12,9 @@ import {
   createInvite,
   getRegisterSetting,
   grantPermission,
+  listGroups,
   listInvites,
+  listResourcePermissions,
   listUsers,
   revokePermission,
   updateInvite,
@@ -20,6 +22,8 @@ import {
   updateUser,
   type AdminUser,
   type InviteCode,
+  type ResourcePermission,
+  type UserGroup,
 } from '@/api/permission'
 import { listServer } from '@/api/server'
 import { $userInfo } from '@/store/user'
@@ -37,6 +41,10 @@ type PermissionDraft = {
   objID: string
   permission: 'view' | 'edit'
 }
+type ResourcePermissionDraft = PermissionDraft & {
+  targetType: 'user' | 'group'
+  targetID: string
+}
 type ResourceOption = {
   objID: string
   label: string
@@ -48,10 +56,19 @@ const defaultPermissionDraft: PermissionDraft = {
   permission: 'view',
 }
 
+const defaultResourcePermissionDraft: ResourcePermissionDraft = {
+  objType: 'client',
+  objID: '',
+  permission: 'view',
+  targetType: 'user',
+  targetID: '',
+}
+
 function AdminPermissionPanel() {
   const userInfo = useStore($userInfo)
   const [invites, setInvites] = useState<InviteCode[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [groups, setGroups] = useState<UserGroup[]>([])
   const [selectedUserID, setSelectedUserID] = useState<number>()
   const [registerEnabled, setRegisterEnabled] = useState(false)
   const [inviteRequired, setInviteRequired] = useState(true)
@@ -62,6 +79,8 @@ function AdminPermissionPanel() {
   const [roleFilter, setRoleFilter] = useState<UserRoleFilter>('all')
   const [statusFilter, setStatusFilter] = useState<UserStatusFilter>('all')
   const [permissionDraft, setPermissionDraft] = useState<PermissionDraft>(defaultPermissionDraft)
+  const [resourcePermissionDraft, setResourcePermissionDraft] = useState<ResourcePermissionDraft>(defaultResourcePermissionDraft)
+  const [resourcePermissions, setResourcePermissions] = useState<ResourcePermission[]>([])
   const [profileDraft, setProfileDraft] = useState({ user_name: '', email: '' })
   const [resourceOptions, setResourceOptions] = useState<{ clients: ResourceOption[]; servers: ResourceOption[] }>({ clients: [], servers: [] })
 
@@ -76,6 +95,11 @@ function AdminPermissionPanel() {
     const nextUsers = await listUsers()
     setUsers(nextUsers)
     setSelectedUserID((current) => current ?? nextUsers[0]?.user_id)
+  }
+
+  const reloadGroups = async () => {
+    const nextGroups = await listGroups()
+    setGroups(nextGroups)
   }
 
   const reloadResources = async () => {
@@ -95,7 +119,7 @@ function AdminPermissionPanel() {
 
   useEffect(() => {
     if (userInfo?.role !== 'admin') return
-    Promise.all([reloadRegistration(), reloadUsers(), reloadResources()]).catch((e) => toast.error(getErrorMessage(e)))
+    Promise.all([reloadRegistration(), reloadUsers(), reloadGroups(), reloadResources()]).catch((e) => toast.error(getErrorMessage(e)))
   }, [userInfo?.role])
 
   const selectedUser = useMemo(() => users.find((user) => user.user_id === selectedUserID) ?? users[0], [selectedUserID, users])
@@ -125,6 +149,46 @@ function AdminPermissionPanel() {
       .filter((user) => roleFilter === 'all' || user.role === roleFilter)
       .filter((user) => statusFilter === 'all' || (statusFilter === 'banned' ? user.status === STATUS_BANNED : user.status !== STATUS_BANNED))
   }, [keyword, roleFilter, statusFilter, users])
+
+  const activeInvites = useMemo(() => invites.filter(isInviteActive), [invites])
+
+  useEffect(() => {
+    setResourcePermissionDraft((prev) => {
+      if (prev.objID) return prev
+      const currentResources = prev.objType === 'server' ? resourceOptions.servers : resourceOptions.clients
+      if (currentResources[0]?.objID) {
+        return { ...prev, objID: currentResources[0].objID }
+      }
+      if (resourceOptions.servers[0]?.objID) {
+        return { ...prev, objType: 'server', objID: resourceOptions.servers[0].objID }
+      }
+      return prev
+    })
+  }, [resourceOptions])
+
+  useEffect(() => {
+    setResourcePermissionDraft((prev) => {
+      if (prev.targetID) return prev
+      const firstTargetID = prev.targetType === 'group' ? groups[0]?.group_id : users[0]?.user_id ? String(users[0].user_id) : ''
+      return { ...prev, targetID: firstTargetID ?? '' }
+    })
+  }, [groups, users])
+
+  const reloadResourcePermissions = async (draft: ResourcePermissionDraft = resourcePermissionDraft) => {
+    if (!draft.objID) {
+      setResourcePermissions([])
+      return
+    }
+    const permissions = await listResourcePermissions({ obj_type: draft.objType, obj_id: draft.objID })
+    setResourcePermissions(permissions)
+  }
+
+  useEffect(() => {
+    if (userInfo?.role !== 'admin' || !resourcePermissionDraft.objID) return
+    listResourcePermissions({ obj_type: resourcePermissionDraft.objType, obj_id: resourcePermissionDraft.objID })
+      .then(setResourcePermissions)
+      .catch((e) => toast.error(getErrorMessage(e)))
+  }, [userInfo?.role, resourcePermissionDraft.objType, resourcePermissionDraft.objID])
 
   const submitInvite = async () => {
     const expiresAt = days > 0 ? Math.floor(Date.now() / 1000) + days * 86400 : undefined
@@ -188,6 +252,33 @@ function AdminPermissionPanel() {
     }
   }
 
+  const submitResourcePermission = async (mode: 'grant' | 'revoke', override?: Partial<ResourcePermissionDraft>) => {
+    const draft = { ...resourcePermissionDraft, ...override }
+    if (!draft.objID) {
+      toast.error('请选择客户端或服务端')
+      return
+    }
+    if (!draft.targetID) {
+      toast.error(draft.targetType === 'group' ? '请选择权限组' : '请选择用户')
+      return
+    }
+    const payload = {
+      obj_type: draft.objType,
+      obj_id: draft.objID,
+      target_type: draft.targetType,
+      target_id: draft.targetID,
+      permission: draft.permission,
+    }
+    if (mode === 'grant') {
+      await grantPermission(payload)
+      toast.success('机器权限已授权')
+    } else {
+      await revokePermission(payload)
+      toast.success('机器权限已撤销')
+    }
+    await reloadResourcePermissions(draft)
+  }
+
   if (!userInfo) {
     return <AccessState title="正在加载账户信息" description="权限信息准备好后再显示管理面板。" />
   }
@@ -201,6 +292,7 @@ function AdminPermissionPanel() {
       <Tabs defaultValue="users" className="space-y-4">
         <TabsList>
           <TabsTrigger value="users">用户管理</TabsTrigger>
+          <TabsTrigger value="resources">机器权限</TabsTrigger>
           <TabsTrigger value="registration">注册与邀请</TabsTrigger>
         </TabsList>
 
@@ -253,6 +345,19 @@ function AdminPermissionPanel() {
           </div>
         </TabsContent>
 
+        <TabsContent value="resources" className="space-y-4">
+          <ResourcePermissionPanel
+            users={users}
+            groups={groups}
+            draft={resourcePermissionDraft}
+            permissions={resourcePermissions}
+            resourceOptions={resourceOptions}
+            onDraftChange={(patch) => setResourcePermissionDraft((prev) => ({ ...prev, ...patch }))}
+            onPermission={submitResourcePermission}
+            onRefresh={() => reloadResourcePermissions()}
+          />
+        </TabsContent>
+
         <TabsContent value="registration" className="space-y-4">
           <Card>
             <CardHeader>
@@ -274,12 +379,20 @@ function AdminPermissionPanel() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3 md:grid-cols-[160px_160px_1fr_auto]">
-                <Input type="number" min={1} value={maxUses} onChange={(e) => setMaxUses(Number(e.target.value))} placeholder="激活次数" />
-                <Input type="number" min={0} value={days} onChange={(e) => setDays(Number(e.target.value))} placeholder="有效天数" />
-                <Input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="备注" />
-                <Button onClick={submitInvite}>新增邀请码</Button>
+                <Field label="激活次数" hint="这个邀请码最多可注册几个账号。">
+                  <Input type="number" min={1} value={maxUses} onChange={(e) => setMaxUses(Number(e.target.value))} placeholder="例如 1" />
+                </Field>
+                <Field label="有效天数" hint="0 表示长期有效。">
+                  <Input type="number" min={0} value={days} onChange={(e) => setDays(Number(e.target.value))} placeholder="例如 7" />
+                </Field>
+                <Field label="备注" hint="给管理员看的用途说明。">
+                  <Input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="例如 测试客户/某团队" />
+                </Field>
+                <div className="flex items-end">
+                  <Button className="w-full" onClick={submitInvite}>新增邀请码</Button>
+                </div>
               </div>
-              <InviteTable invites={invites} onToggle={toggleInvite} />
+              <InviteTable invites={activeInvites} onToggle={toggleInvite} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -298,6 +411,16 @@ function Metric({ title, value }: { title: string; value: number }) {
         <div className="text-2xl font-semibold">{value}</div>
       </CardContent>
     </Card>
+  )
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-sm font-medium">{label}</span>
+      {children}
+      {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+    </label>
   )
 }
 
@@ -390,6 +513,156 @@ function UserTable({ users, selectedUserID, onSelect }: { users: AdminUser[]; se
         ))}
       </TableBody>
     </Table>
+  )
+}
+
+function ResourcePermissionPanel({
+  users,
+  groups,
+  draft,
+  permissions,
+  resourceOptions,
+  onDraftChange,
+  onPermission,
+  onRefresh,
+}: {
+  users: AdminUser[]
+  groups: UserGroup[]
+  draft: ResourcePermissionDraft
+  permissions: ResourcePermission[]
+  resourceOptions: { clients: ResourceOption[]; servers: ResourceOption[] }
+  onDraftChange: (patch: Partial<ResourcePermissionDraft>) => void
+  onPermission: (mode: 'grant' | 'revoke', override?: Partial<ResourcePermissionDraft>) => void
+  onRefresh: () => void
+}) {
+  const resources = draft.objType === 'server' ? resourceOptions.servers : resourceOptions.clients
+  const targets = draft.targetType === 'group'
+    ? groups.map((group) => ({ id: group.group_id, label: formatResourceLabel(group.group_id, group.group_name) }))
+    : users.map((user) => ({ id: String(user.user_id), label: formatUserLabel(user) }))
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <Card>
+        <CardHeader>
+          <CardTitle>客户端/服务端权限</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-[160px_minmax(240px,1fr)_auto]">
+            <Field label="机器类型">
+              <select
+                className="h-9 rounded-md border bg-background px-3 text-sm"
+                value={draft.objType}
+                onChange={(e) => {
+                  const objType = e.target.value
+                  const nextResources = objType === 'server' ? resourceOptions.servers : resourceOptions.clients
+                  onDraftChange({ objType, objID: nextResources[0]?.objID ?? '' })
+                }}
+              >
+                <option value="client">客户端</option>
+                <option value="server">服务端</option>
+              </select>
+            </Field>
+            <Field label="选择机器">
+              <select className="h-9 rounded-md border bg-background px-3 text-sm" value={draft.objID} onChange={(e) => onDraftChange({ objID: e.target.value })}>
+                <option value="">{resources.length ? '选择要管理的机器' : '暂无机器'}</option>
+                {resources.map((resource) => (
+                  <option key={resource.objID} value={resource.objID}>
+                    {resource.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="flex items-end">
+              <Button variant="outline" className="w-full" onClick={onRefresh}>
+                刷新
+              </Button>
+            </div>
+          </div>
+
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>授权对象</TableHead>
+                <TableHead>类型</TableHead>
+                <TableHead>权限</TableHead>
+                <TableHead className="text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {permissions.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                    暂无单独授权记录
+                  </TableCell>
+                </TableRow>
+              )}
+              {permissions.map((permission) => (
+                <TableRow key={`${permission.target_type}:${permission.target_id}`}>
+                  <TableCell>
+                    <div className="font-medium">{permission.target_name}</div>
+                    <div className="text-xs text-muted-foreground">{permission.target_id}</div>
+                  </TableCell>
+                  <TableCell>{permission.target_type === 'group' ? '权限组' : '用户'}</TableCell>
+                  <TableCell>{permission.permission === 'edit' ? '编辑' : '仅查看'}</TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onPermission('revoke', {
+                        targetType: permission.target_type,
+                        targetID: permission.target_id,
+                        permission: permission.permission,
+                      })}
+                    >
+                      撤销
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>新增授权</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <Field label="授权对象类型">
+            <select
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+              value={draft.targetType}
+              onChange={(e) => {
+                const targetType = e.target.value as ResourcePermissionDraft['targetType']
+                const targetID = targetType === 'group' ? groups[0]?.group_id ?? '' : users[0]?.user_id ? String(users[0].user_id) : ''
+                onDraftChange({ targetType, targetID })
+              }}
+            >
+              <option value="user">用户</option>
+              <option value="group">权限组</option>
+            </select>
+          </Field>
+          <Field label={draft.targetType === 'group' ? '选择权限组' : '选择用户'}>
+            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={draft.targetID} onChange={(e) => onDraftChange({ targetID: e.target.value })}>
+              <option value="">{targets.length ? '选择授权对象' : '暂无可选对象'}</option>
+              {targets.map((target) => (
+                <option key={target.id} value={target.id}>
+                  {target.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="权限级别" hint="编辑权限包含仅查看权限。">
+            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={draft.permission} onChange={(e) => onDraftChange({ permission: e.target.value as ResourcePermissionDraft['permission'] })}>
+              <option value="view">仅查看</option>
+              <option value="edit">编辑</option>
+            </select>
+          </Field>
+          <Button onClick={() => onPermission('grant')}>授权给当前机器</Button>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 
@@ -502,6 +775,17 @@ function getErrorMessage(error: unknown) {
 function formatResourceLabel(id?: string, comment?: string) {
   if (!id) return ''
   return comment ? `${comment} (${id})` : id
+}
+
+function formatUserLabel(user: AdminUser) {
+  const name = user.user_name || user.email || `用户 ${user.user_id}`
+  return `${name} (#${user.user_id})`
+}
+
+function isInviteActive(invite: InviteCode) {
+  const hasUses = invite.max_uses <= 0 || invite.used_count < invite.max_uses
+  const notExpired = !invite.expires_at || new Date(invite.expires_at).getTime() > Date.now()
+  return hasUses && notExpired
 }
 
 export default function AdminPermissionsPage() {

@@ -3,6 +3,8 @@ package permission
 import (
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	authsvc "github.com/VaalaCat/frp-panel/biz/master/auth"
@@ -58,6 +60,18 @@ type inviteUpdateRequest struct {
 type registerSettingRequest struct {
 	RegisterEnabled *bool `json:"register_enabled"`
 	InviteRequired  *bool `json:"invite_required"`
+}
+
+type resourcePermissionRequest struct {
+	ObjType string `json:"obj_type"`
+	ObjID   string `json:"obj_id"`
+}
+
+type resourcePermissionEntry struct {
+	TargetType string `json:"target_type"`
+	TargetID   string `json:"target_id"`
+	TargetName string `json:"target_name"`
+	Permission string `json:"permission"`
 }
 
 func Share(appInstance app.Application) gin.HandlerFunc {
@@ -278,6 +292,88 @@ func ListUsers(appInstance app.Application) gin.HandlerFunc {
 	}
 }
 
+func ListResourcePermissions(appInstance app.Application) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userInfo := common.GetUserInfo(c)
+		if !userInfo.IsAdmin() {
+			errJSON(c, http.StatusForbidden, fmt.Errorf("only admin can list resource permissions"))
+			return
+		}
+		if appInstance.GetEnforcer() == nil {
+			errJSON(c, http.StatusInternalServerError, fmt.Errorf("permission manager is not initialized"))
+			return
+		}
+
+		req := resourcePermissionRequest{}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			errJSON(c, http.StatusBadRequest, err)
+			return
+		}
+		objType := defs.RBACObj(req.ObjType)
+		switch objType {
+		case defs.RBACObjClient, defs.RBACObjServer:
+		default:
+			errJSON(c, http.StatusBadRequest, fmt.Errorf("invalid object type"))
+			return
+		}
+		if strings.TrimSpace(req.ObjID) == "" {
+			errJSON(c, http.StatusBadRequest, fmt.Errorf("invalid object id"))
+			return
+		}
+
+		userNames, groupNames := loadPermissionSubjectNames(appInstance, userInfo.GetTenantID())
+		domain := rbacsvc.TenantDomain(userInfo.GetTenantID())
+		object := rbacsvc.Object(objType, req.ObjID)
+		policies := appInstance.GetEnforcer().GetFilteredPolicy(1, object)
+		merged := map[string]*resourcePermissionEntry{}
+		for _, policy := range policies {
+			if len(policy) < 4 || policy[3] != domain {
+				continue
+			}
+			targetType, targetID := splitPermissionSubject(policy[0])
+			if targetType == "" || targetID == "" {
+				continue
+			}
+			key := targetType + ":" + targetID
+			entry, ok := merged[key]
+			if !ok {
+				entry = &resourcePermissionEntry{
+					TargetType: targetType,
+					TargetID:   targetID,
+					TargetName: targetID,
+					Permission: string(defs.RBACActionView),
+				}
+				if targetType == string(defs.RBACSubjectUser) {
+					if name := userNames[targetID]; name != "" {
+						entry.TargetName = name
+					}
+				}
+				if targetType == string(defs.RBACSubjectGroup) {
+					if name := groupNames[targetID]; name != "" {
+						entry.TargetName = name
+					}
+				}
+				merged[key] = entry
+			}
+			if normalizePublicPermission(defs.RBACAction(policy[2])) == defs.RBACActionEdit {
+				entry.Permission = string(defs.RBACActionEdit)
+			}
+		}
+
+		ret := make([]resourcePermissionEntry, 0, len(merged))
+		for _, entry := range merged {
+			ret = append(ret, *entry)
+		}
+		sort.Slice(ret, func(i, j int) bool {
+			if ret[i].TargetType == ret[j].TargetType {
+				return ret[i].TargetName < ret[j].TargetName
+			}
+			return ret[i].TargetType < ret[j].TargetType
+		})
+		okJSON(c, ret)
+	}
+}
+
 func UpdateUser(appInstance app.Application) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userInfo := common.GetUserInfo(c)
@@ -371,9 +467,16 @@ func ListInvites(appInstance app.Application) gin.HandlerFunc {
 			errJSON(c, http.StatusForbidden, fmt.Errorf("only admin can list invite codes"))
 			return
 		}
+		now := time.Now()
+		if err := appInstance.GetDBManager().GetDefaultDB().
+			Where("tenant_id = ? AND ((max_uses > 0 AND used_count >= max_uses) OR (expires_at IS NOT NULL AND expires_at <= ?))", userInfo.GetTenantID(), now).
+			Delete(&models.InviteCode{}).Error; err != nil {
+			errJSON(c, http.StatusInternalServerError, err)
+			return
+		}
 		var invites []*models.InviteCode
 		if err := appInstance.GetDBManager().GetDefaultDB().
-			Where(&models.InviteCode{TenantID: userInfo.GetTenantID()}).
+			Where("tenant_id = ? AND (max_uses <= 0 OR used_count < max_uses) AND (expires_at IS NULL OR expires_at > ?)", userInfo.GetTenantID(), now).
 			Order("created_at desc").
 			Find(&invites).Error; err != nil {
 			errJSON(c, http.StatusInternalServerError, err)
@@ -668,6 +771,51 @@ func ensureTenantGroup(appInstance app.Application, tenantID int, groupID string
 	return appInstance.GetDBManager().GetDefaultDB().
 		Where(&models.UserGroup{GroupID: groupID, TenantID: tenantID}).
 		First(group).Error
+}
+
+func loadPermissionSubjectNames(appInstance app.Application, tenantID int) (map[string]string, map[string]string) {
+	userNames := map[string]string{}
+	groupNames := map[string]string{}
+
+	var users []*models.User
+	if err := appInstance.GetDBManager().GetDefaultDB().
+		Where(&models.User{UserEntity: &models.UserEntity{TenantID: tenantID}}).
+		Find(&users).Error; err == nil {
+		for _, user := range users {
+			if user.UserEntity == nil {
+				continue
+			}
+			name := user.UserName
+			if name == "" {
+				name = user.Email
+			}
+			userNames[fmt.Sprint(user.UserID)] = name
+		}
+	}
+
+	var groups []*models.UserGroup
+	if err := appInstance.GetDBManager().GetDefaultDB().
+		Where(&models.UserGroup{TenantID: tenantID}).
+		Find(&groups).Error; err == nil {
+		for _, group := range groups {
+			name := group.GroupName
+			if name == "" {
+				name = group.GroupID
+			}
+			groupNames[group.GroupID] = name
+		}
+	}
+	return userNames, groupNames
+}
+
+func splitPermissionSubject(subject string) (string, string) {
+	if strings.HasPrefix(subject, string(defs.RBACSubjectUser)+":") {
+		return string(defs.RBACSubjectUser), strings.TrimPrefix(subject, string(defs.RBACSubjectUser)+":")
+	}
+	if strings.HasPrefix(subject, string(defs.RBACSubjectGroup)+":") {
+		return string(defs.RBACSubjectGroup), strings.TrimPrefix(subject, string(defs.RBACSubjectGroup)+":")
+	}
+	return "", ""
 }
 
 func getInviteRequired(appInstance app.Application) bool {

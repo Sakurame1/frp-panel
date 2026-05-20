@@ -54,6 +54,20 @@ export interface AdminUser {
   role: string
 }
 
+export interface UserGroup {
+  group_id: string
+  group_name: string
+  comment?: string
+  users?: AdminUser[]
+}
+
+export interface ResourcePermission {
+  target_type: 'user' | 'group'
+  target_id: string
+  target_name: string
+  permission: 'view' | 'edit'
+}
+
 export const listUsers = async (): Promise<AdminUser[]> => {
   const res = await http.post(API_PATH + '/permission/user/list', {})
   return unwrap(res) ?? []
@@ -62,6 +76,16 @@ export const listUsers = async (): Promise<AdminUser[]> => {
 export const updateUser = async (req: Partial<AdminUser> & { user_id: number }) => {
   const res = await http.post(API_PATH + '/permission/user/update', req)
   return unwrap(res)
+}
+
+export const listGroups = async (): Promise<UserGroup[]> => {
+  const res = await http.post(API_PATH + '/permission/group/list', {})
+  return unwrap(res) ?? []
+}
+
+export const listResourcePermissions = async (req: { obj_type: string; obj_id: string }): Promise<ResourcePermission[]> => {
+  const res = await http.post(API_PATH + '/permission/resource/permissions', req)
+  return unwrap(res) ?? []
 }
 
 export const grantPermission = async (req: { obj_type: string; obj_id: string; target_type: 'user' | 'group'; target_id: string; permission: 'view' | 'edit' }) => {

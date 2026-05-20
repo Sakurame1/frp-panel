@@ -61,14 +61,22 @@ func consumeInviteCode(ctx *app.Context, code string) (int, error) {
 			return fmt.Errorf("invite code is disabled")
 		}
 		if invite.ExpiresAt != nil && time.Now().After(*invite.ExpiresAt) {
+			_ = tx.Delete(invite).Error
 			return fmt.Errorf("invite code is expired")
 		}
 		if invite.MaxUses > 0 && invite.UsedCount >= invite.MaxUses {
+			_ = tx.Delete(invite).Error
 			return fmt.Errorf("invite code has no remaining uses")
 		}
 
-		if err := tx.Model(invite).Update("used_count", invite.UsedCount+1).Error; err != nil {
+		nextUsedCount := invite.UsedCount + 1
+		if err := tx.Model(invite).Update("used_count", nextUsedCount).Error; err != nil {
 			return err
+		}
+		if invite.MaxUses > 0 && nextUsedCount >= invite.MaxUses {
+			if err := tx.Delete(invite).Error; err != nil {
+				return err
+			}
 		}
 		tenantID = invite.TenantID
 		return nil
