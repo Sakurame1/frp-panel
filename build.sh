@@ -24,7 +24,7 @@ GIT_COMMIT="$(git rev-parse HEAD)"
 VERSION="$(git describe --tags --abbrev=0 | tr -d '\n')"
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
-if [[ -n "$GITHUB_REF_NAME" ]]; then
+if [[ -n "${GITHUB_REF_NAME:-}" ]]; then
     VERSION="$GITHUB_REF_NAME"
 fi
 
@@ -69,7 +69,10 @@ else
     rm -rf dist/*
 
     # Build frontend
-    cd www && pnpm install --frozen-lockfile && pnpm build && cd ..
+    pushd www
+    pnpm install --frozen-lockfile
+    pnpm build
+    popd
 fi
 
 # Build function
@@ -82,10 +85,10 @@ build_binary() {
 
     # Determine output name and source path
     if [[ "$bintype" == "full" ]]; then
-        source_path="cmd/frpp/*.go"
+        source_path="./cmd/frpp"
         output_name="frp-panel"
     elif [[ "$bintype" == "client" ]]; then
-        source_path="cmd/frppc/*.go"
+        source_path="./cmd/frppc"
         output_name="frp-panel-client"
     else
         echo "Invalid binary type"
