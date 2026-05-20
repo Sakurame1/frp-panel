@@ -5,6 +5,7 @@ builds:
   dir: .
   main: ./cmd/frpp
   ldflags:
+  - -checklinkname=0
   - -s -w
   - -X github.com/VaalaCat/frp-panel/conf.buildDate={{.Date}}
   - -X github.com/VaalaCat/frp-panel/conf.gitCommit={{.Git.FullCommit}}
