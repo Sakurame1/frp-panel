@@ -80,12 +80,12 @@ export const columns: ColumnDef<ProxyConfigTableSchema>[] = [
   },
   {
     accessorKey: 'remotePort',
-    header: '杩滅▼绔彛',
+    header: '远程端口',
     cell: ({ row }) => row.original.remotePort || '-',
   },
   {
     accessorKey: 'localPort',
-    header: '鏈湴绔彛',
+    header: '本地端口',
     cell: ({ row }) => row.original.localPort || '-',
   },
   {

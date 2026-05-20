@@ -58,14 +58,15 @@ func consumeInviteCode(ctx *app.Context, code string) (int, error) {
 			return fmt.Errorf("invalid invite code")
 		}
 		if invite.Disabled {
+			_ = tx.Unscoped().Delete(invite).Error
 			return fmt.Errorf("invite code is disabled")
 		}
 		if invite.ExpiresAt != nil && time.Now().After(*invite.ExpiresAt) {
-			_ = tx.Delete(invite).Error
+			_ = tx.Unscoped().Delete(invite).Error
 			return fmt.Errorf("invite code is expired")
 		}
 		if invite.MaxUses > 0 && invite.UsedCount >= invite.MaxUses {
-			_ = tx.Delete(invite).Error
+			_ = tx.Unscoped().Delete(invite).Error
 			return fmt.Errorf("invite code has no remaining uses")
 		}
 
@@ -74,7 +75,7 @@ func consumeInviteCode(ctx *app.Context, code string) (int, error) {
 			return err
 		}
 		if invite.MaxUses > 0 && nextUsedCount >= invite.MaxUses {
-			if err := tx.Delete(invite).Error; err != nil {
+			if err := tx.Unscoped().Delete(invite).Error; err != nil {
 				return err
 			}
 		}

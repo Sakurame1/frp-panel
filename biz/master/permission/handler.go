@@ -470,6 +470,7 @@ func ListInvites(appInstance app.Application) gin.HandlerFunc {
 		now := time.Now()
 		if err := appInstance.GetDBManager().GetDefaultDB().
 			Where("tenant_id = ? AND ((max_uses > 0 AND used_count >= max_uses) OR (expires_at IS NOT NULL AND expires_at <= ?))", userInfo.GetTenantID(), now).
+			Unscoped().
 			Delete(&models.InviteCode{}).Error; err != nil {
 			errJSON(c, http.StatusInternalServerError, err)
 			return
@@ -505,6 +506,14 @@ func UpdateInvite(appInstance app.Application) gin.HandlerFunc {
 			return
 		}
 		if req.Disabled != nil {
+			if *req.Disabled {
+				if err := db.Unscoped().Delete(invite).Error; err != nil {
+					errJSON(c, http.StatusInternalServerError, err)
+					return
+				}
+				okJSON(c, gin.H{"deleted": true})
+				return
+			}
 			invite.Disabled = *req.Disabled
 		}
 		if err := db.Save(invite).Error; err != nil {
