@@ -14,6 +14,7 @@ import { $proxyTableRefetchTrigger } from '@/store/refetch-trigger'
 import { DataTableColumnHeader } from '../base/column_header'
 
 export type ProxyConfigTableSchema = {
+  id?: number | string
   serverID: string
   clientID: string
   name: string
