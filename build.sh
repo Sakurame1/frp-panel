@@ -66,7 +66,7 @@ else
     rm -rf dist/*
 
     # Build frontend
-    cd www && pnpm install --no-frozen-lockfile && pnpm build && cd ..
+    cd www && pnpm install --frozen-lockfile && pnpm build && cd ..
 fi
 
 # Build function

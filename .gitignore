@@ -6,6 +6,8 @@ tmp
 frp-panel
 out
 cmd/out
+!cmd/frpp/out/
+!cmd/frpp/out/**
 frp-panel*
 dist/
 
