@@ -42,12 +42,16 @@ import { NeedUpgrade } from '@/config/notify'
 import { Label } from '../ui/label'
 import { Checkbox } from '../ui/checkbox'
 import { ClientUpgradeDialog } from '../base/client_upgrade_dialog'
+import { DataTableColumnHeader } from '../base/column_header'
 
 export type ClientTableSchema = {
   id: string
   status: 'invalid' | 'valid'
+  runtimeStatus: 'online' | 'offline' | 'error' | 'paused' | 'unknown'
+  ping: number
   secret: string
   stopped: boolean
+  ephemeral: boolean
   info?: string
   config?: string
   originClient: Client
@@ -61,9 +65,9 @@ export interface TableMetaType extends TableMeta<ClientTableSchema> {
 export const columns: ColumnDef<ClientTableSchema>[] = [
   {
     accessorKey: 'id',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('client.id')
+      return <DataTableColumnHeader column={column} title={t('client.id')} />
     },
     cell: ({ row }) => {
       return <ClientID client={row.original} />
@@ -71,9 +75,9 @@ export const columns: ColumnDef<ClientTableSchema>[] = [
   },
   {
     accessorKey: 'status',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('client.status')
+      return <DataTableColumnHeader column={column} title={t('client.status')} />
     },
     cell: ({ row }) => {
       function Cell({ client }: { client: ClientTableSchema }) {
@@ -89,14 +93,29 @@ export const columns: ColumnDef<ClientTableSchema>[] = [
   },
   {
     accessorKey: 'info',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('client.info')
+      return <DataTableColumnHeader column={column} title={t('client.info')} />
     },
     cell: ({ row }) => {
       const client = row.original
       return <ClientInfo client={client} />
     },
+  },
+  {
+    accessorKey: 'runtimeStatus',
+    enableHiding: true,
+    cell: () => null,
+  },
+  {
+    accessorKey: 'ping',
+    enableHiding: true,
+    cell: () => null,
+  },
+  {
+    accessorKey: 'ephemeral',
+    enableHiding: true,
+    cell: () => null,
   },
   {
     accessorKey: 'secret',

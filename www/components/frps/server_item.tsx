@@ -39,10 +39,13 @@ import { toast } from 'sonner'
 import { $serverTableRefetchTrigger } from '@/store/refetch-trigger'
 import { Checkbox } from '../ui/checkbox'
 import { Label } from '../ui/label'
+import { DataTableColumnHeader } from '../base/column_header'
 
 export type ServerTableSchema = {
   id: string
   status: 'invalid' | 'valid'
+  runtimeStatus: 'online' | 'offline' | 'error' | 'paused' | 'unknown'
+  ping: number
   secret: string
   stopped: boolean
   info?: string
@@ -54,9 +57,9 @@ export type ServerTableSchema = {
 export const columns: ColumnDef<ServerTableSchema>[] = [
   {
     accessorKey: 'id',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('server.id')
+      return <DataTableColumnHeader column={column} title={t('server.id')} />
     },
     cell: ({ row }) => {
       return <ServerID server={row.original} />
@@ -64,9 +67,9 @@ export const columns: ColumnDef<ServerTableSchema>[] = [
   },
   {
     accessorKey: 'status',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('server.status')
+      return <DataTableColumnHeader column={column} title={t('server.status')} />
     },
     cell: ({ row }) => {
       function Cell({ server }: { server: ServerTableSchema }) {
@@ -82,9 +85,9 @@ export const columns: ColumnDef<ServerTableSchema>[] = [
   },
   {
     accessorKey: 'info',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('server.info')
+      return <DataTableColumnHeader column={column} title={t('server.info')} />
     },
     cell: ({ row }) => {
       const server = row.original
@@ -93,13 +96,23 @@ export const columns: ColumnDef<ServerTableSchema>[] = [
   },
   {
     accessorKey: 'ip',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('server.ip')
+      return <DataTableColumnHeader column={column} title={t('server.ip')} />
     },
     cell: ({ row }) => {
       return row.original.ip
     },
+  },
+  {
+    accessorKey: 'runtimeStatus',
+    enableHiding: true,
+    cell: () => null,
+  },
+  {
+    accessorKey: 'ping',
+    enableHiding: true,
+    cell: () => null,
   },
   {
     accessorKey: 'secret',

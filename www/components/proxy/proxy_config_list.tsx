@@ -19,6 +19,8 @@ import { listProxyConfig } from '@/api/proxy'
 import { TypedProxyConfig } from '@/types/proxy'
 import { $proxyTableRefetchTrigger } from '@/store/refetch-trigger'
 import { useStore } from '@nanostores/react'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
 
 export interface ProxyConfigListProps {
   ProxyConfigs: ProxyConfig[]
@@ -37,6 +39,10 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
 }) => {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
+  const [typeFilter, setTypeFilter] = React.useState<string>('all')
+  const [statusFilter, setStatusFilter] = React.useState<'all' | 'running' | 'stopped'>('all')
+  const [minPort, setMinPort] = React.useState('')
+  const [maxPort, setMaxPort] = React.useState('')
   const globalRefetchTrigger = useStore($proxyTableRefetchTrigger)
 
   const data = ProxyConfigs.map(
@@ -46,7 +52,10 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
         clientID: proxy_config.clientId || '',
         serverID: proxy_config.serverId || '',
         name: proxy_config.name || '',
-        type: proxy_config.type || '',
+        type: (proxy_config.type || '') as ProxyConfigTableSchema['type'],
+        status: (proxy_config.stopped ? 'stopped' : 'running') as ProxyConfigTableSchema['status'],
+        localPort: proxy_config.config && ParseProxyConfig(proxy_config.config).localPort,
+        remotePort: proxy_config.config && 'remotePort' in ParseProxyConfig(proxy_config.config) ? ParseProxyConfig(proxy_config.config).remotePort : undefined,
         visitPreview: 'for test',
         originalProxyConfig: proxy_config,
         stopped: proxy_config.stopped,
@@ -89,23 +98,37 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
     placeholderData: keepPreviousData,
   })
 
-  const table = useReactTable({
-    data:
-      dataQuery.data?.proxyConfigs.map((proxy_config) => {
+  const rows = React.useMemo(() => {
+    const min = Number(minPort)
+    const max = Number(maxPort)
+    return (dataQuery.data?.proxyConfigs ?? ProxyConfigs)
+      .map((proxy_config) => {
+        const parsed = proxy_config.config ? ParseProxyConfig(proxy_config.config) : undefined
+        const remotePort = parsed && 'remotePort' in parsed ? parsed.remotePort : undefined
         return {
           id: proxy_config.id || '',
           name: proxy_config.name || '',
           clientID: proxy_config.clientId || '',
           serverID: proxy_config.serverId || '',
-          type: proxy_config.type || '',
+          type: (proxy_config.type || '') as ProxyConfigTableSchema['type'],
+          status: (proxy_config.stopped ? 'stopped' : 'running') as ProxyConfigTableSchema['status'],
           config: proxy_config.config || '',
-          localIP: proxy_config.config && ParseProxyConfig(proxy_config.config).localIP,
-          localPort: proxy_config.config && ParseProxyConfig(proxy_config.config).localPort,
+          localIP: parsed?.localIP,
+          localPort: parsed?.localPort,
+          remotePort,
           visitPreview: '',
           originalProxyConfig: proxy_config,
           stopped: proxy_config.stopped || false,
         } as ProxyConfigTableSchema
-      }) ?? data,
+      })
+      .filter((row) => typeFilter === 'all' || row.type === typeFilter)
+      .filter((row) => statusFilter === 'all' || row.status === statusFilter)
+      .filter((row) => minPort === '' || ((row.remotePort ?? row.localPort ?? 0) >= min))
+      .filter((row) => maxPort === '' || ((row.remotePort ?? row.localPort ?? Number.MAX_SAFE_INTEGER) <= max))
+  }, [dataQuery.data, ProxyConfigs, typeFilter, statusFilter, minPort, maxPort])
+
+  const table = useReactTable({
+    data: rows.length > 0 || dataQuery.data ? rows : data,
     pageCount: Math.ceil(
       //@ts-ignore
       (dataQuery.data?.total == undefined ? 0 : dataQuery.data?.total) / fetchDataOptions.pageSize ?? 0,
@@ -125,7 +148,37 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
       columnFilters,
     },
   })
-  return <DataTable table={table} columns={proxyConfigColumnsDef} />
+  const proxyTypes = ['tcp', 'udp', 'http', 'https', 'tcpmux', 'stcp', 'xtcp', 'sudp']
+  return (
+    <DataTable
+      table={table}
+      columns={proxyConfigColumnsDef}
+      toolbar={
+        <div className="flex flex-wrap items-center gap-2">
+          <select className="h-9 rounded-md border bg-background px-3 text-sm" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+            <option value="all">全部协议</option>
+            {proxyTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+          </select>
+          <select className="h-9 rounded-md border bg-background px-3 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
+            <option value="all">全部状态</option>
+            <option value="running">运行中</option>
+            <option value="stopped">已暂停</option>
+          </select>
+          <Input className="h-9 w-28" inputMode="numeric" placeholder="最小端口" value={minPort} onChange={(e) => setMinPort(e.target.value)} />
+          <Input className="h-9 w-28" inputMode="numeric" placeholder="最大端口" value={maxPort} onChange={(e) => setMaxPort(e.target.value)} />
+          <Button variant="outline" size="sm" onClick={() => {
+            setTypeFilter('all')
+            setStatusFilter('all')
+            setMinPort('')
+            setMaxPort('')
+            setSorting([])
+          }}>
+            重置
+          </Button>
+        </div>
+      }
+    />
+  )
 }
 
 function ParseProxyConfig(cfg: string): TypedProxyConfig {

@@ -1,7 +1,7 @@
 import { Providers } from '@/components/providers'
 import { RootLayout } from '@/components/layout'
 import { Header } from '@/components/header'
-import { ClientStatsCard } from '@/components/stats/client_stats_card'
+import { TrafficStatsOverview } from '@/components/stats/traffic_stats_overview'
 
 export default function ClientStatsPage() {
   return (
@@ -9,7 +9,7 @@ export default function ClientStatsPage() {
       <RootLayout mainHeader={<Header />}>
         <div className="w-full">
           <div className="flex-1 flex-col">
-            <ClientStatsCard />
+            <TrafficStatsOverview />
           </div>
         </div>
       </RootLayout>

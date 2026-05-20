@@ -11,14 +11,17 @@ import { getProxyConfig } from '@/api/proxy'
 import { Badge } from '../ui/badge'
 import { useStore } from '@nanostores/react'
 import { $proxyTableRefetchTrigger } from '@/store/refetch-trigger'
+import { DataTableColumnHeader } from '../base/column_header'
 
 export type ProxyConfigTableSchema = {
   serverID: string
   clientID: string
   name: string
   type: ProxyType
+  status: 'running' | 'stopped'
   localIP?: string
   localPort?: number
+  remotePort?: number
   visitPreview: string
   config?: string
   originalProxyConfig: ProxyConfig
@@ -28,9 +31,9 @@ export type ProxyConfigTableSchema = {
 export const columns: ColumnDef<ProxyConfigTableSchema>[] = [
   {
     accessorKey: 'name',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('proxy.item.proxy_name')
+      return <DataTableColumnHeader column={column} title={t('proxy.item.proxy_name')} />
     },
     cell: ({ row }) => {
       return <div className="font-mono text-nowrap">{row.original.name}</div>
@@ -38,9 +41,9 @@ export const columns: ColumnDef<ProxyConfigTableSchema>[] = [
   },
   {
     accessorKey: 'type',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('proxy.item.proxy_type')
+      return <DataTableColumnHeader column={column} title={t('proxy.item.proxy_type')} />
     },
     cell: ({ row }) => {
       return <div className="font-mono text-nowrap">{row.original.type}</div>
@@ -48,9 +51,9 @@ export const columns: ColumnDef<ProxyConfigTableSchema>[] = [
   },
   {
     accessorKey: 'clientID',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('proxy.item.client_id')
+      return <DataTableColumnHeader column={column} title={t('proxy.item.client_id')} />
     },
     cell: ({ row }) => {
       return <div className="font-mono text-nowrap">{row.original.originalProxyConfig.originClientId}</div>
@@ -58,21 +61,31 @@ export const columns: ColumnDef<ProxyConfigTableSchema>[] = [
   },
   {
     accessorKey: 'serverID',
-    header: function Header() {
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('proxy.item.server_id')
+      return <DataTableColumnHeader column={column} title={t('proxy.item.server_id')} />
     },
     cell: ({ row }) => {
       return <div className="font-mono text-nowrap">{row.original.serverID}</div>
     },
   },
   {
-    id: 'status',
-    header: function Header() {
+    accessorKey: 'status',
+    header: function Header({ column }: any) {
       const { t } = useTranslation()
-      return t('proxy.item.status')
+      return <DataTableColumnHeader column={column} title={t('proxy.item.status')} />
     },
     cell: ProxyStatus,
+  },
+  {
+    accessorKey: 'remotePort',
+    header: '杩滅▼绔彛',
+    cell: ({ row }) => row.original.remotePort || '-',
+  },
+  {
+    accessorKey: 'localPort',
+    header: '鏈湴绔彛',
+    cell: ({ row }) => row.original.localPort || '-',
   },
   {
     accessorKey: 'visitPreview',
