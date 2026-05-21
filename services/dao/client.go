@@ -128,9 +128,18 @@ func (q *clientQuery) GetClientByFilter(userInfo models.UserInfo, client *models
 	}
 	c := &models.Client{}
 
-	err := scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
-		Where(filter).
-		First(c).Error
+	var err error
+	if len(filter.OriginClientID) != 0 {
+		origin, err := q.GetClientByClientID(userInfo, filter.OriginClientID)
+		if err != nil {
+			return nil, err
+		}
+		err = db.Where("tenant_id = ?", origin.TenantID).Where(filter).First(c).Error
+	} else {
+		err = scopeOwnedOrShared(db, q.ctx, userInfo, defs.RBACObjClient, "client_id", defs.RBACActionView).
+			Where(filter).
+			First(c).Error
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -204,10 +213,17 @@ func (m *clientMutation) UpdateClient(userInfo models.UserInfo, client *models.C
 	if err := db.Where(&models.Client{ClientEntity: &models.ClientEntity{ClientID: client.ClientID}}).First(old).Error; err != nil {
 		return err
 	}
-	if err := canAccessResource(m.ctx, userInfo, defs.RBACObjClient, client.ClientID, ownedResource{
+	err := canAccessResource(m.ctx, userInfo, defs.RBACObjClient, client.ClientID, ownedResource{
 		tenantID: old.TenantID,
 		userID:   old.UserID,
-	}, defs.RBACActionEdit); err != nil {
+	}, defs.RBACActionEdit)
+	if err != nil && len(old.OriginClientID) != 0 {
+		err = canAccessResource(m.ctx, userInfo, defs.RBACObjClient, old.OriginClientID, ownedResource{
+			tenantID: old.TenantID,
+			userID:   old.UserID,
+		}, defs.RBACActionEdit)
+	}
+	if err != nil {
 		return err
 	}
 	client.UserID = old.UserID
@@ -312,13 +328,17 @@ func (q *clientQuery) CountConfiguredClients(userInfo models.UserInfo) (int64, e
 }
 
 func (q *clientQuery) CountClientsInShadow(userInfo models.UserInfo, clientID string) (int64, error) {
+	origin, err := q.GetClientByClientID(userInfo, clientID)
+	if err != nil {
+		return 0, err
+	}
+
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var count int64
-	err := db.Model(&models.Client{}).
+	err = db.Model(&models.Client{}).
 		Where(&models.Client{
 			ClientEntity: &models.ClientEntity{
-				UserID:         userInfo.GetUserID(),
-				TenantID:       userInfo.GetTenantID(),
+				TenantID:       origin.TenantID,
 				OriginClientID: clientID,
 			}}).
 		Count(&count).Error
@@ -329,12 +349,16 @@ func (q *clientQuery) CountClientsInShadow(userInfo models.UserInfo, clientID st
 }
 
 func (q *clientQuery) GetClientIDsInShadowByClientID(userInfo models.UserInfo, clientID string) ([]string, error) {
+	origin, err := q.GetClientByClientID(userInfo, clientID)
+	if err != nil {
+		return nil, err
+	}
+
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	var clients []*models.Client
-	err := db.Where(&models.Client{
+	err = db.Where(&models.Client{
 		ClientEntity: &models.ClientEntity{
-			UserID:         userInfo.GetUserID(),
-			TenantID:       userInfo.GetTenantID(),
+			TenantID:       origin.TenantID,
 			OriginClientID: clientID,
 		}}).Find(&clients).Error
 	if err != nil {
