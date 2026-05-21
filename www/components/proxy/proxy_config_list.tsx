@@ -14,8 +14,8 @@ import {
 } from '@tanstack/react-table'
 
 import React from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { listProxyConfig } from '@/api/proxy'
+import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
+import { getProxyConfig, listProxyConfig } from '@/api/proxy'
 import { TypedProxyConfig } from '@/types/proxy'
 import { $proxyTableRefetchTrigger } from '@/store/refetch-trigger'
 import { useStore } from '@nanostores/react'
@@ -43,7 +43,7 @@ function getRemotePort(config?: TypedProxyConfig): number | undefined {
   return config && 'remotePort' in config ? config.remotePort : undefined
 }
 
-function toTableRow(proxyConfig: ProxyConfig): ProxyConfigTableSchema {
+function toTableRow(proxyConfig: ProxyConfig, liveStatus?: string): ProxyConfigTableSchema {
   const parsed = parseProxyConfig(proxyConfig.config)
   return {
     id: proxyConfig.id || '',
@@ -51,7 +51,7 @@ function toTableRow(proxyConfig: ProxyConfig): ProxyConfigTableSchema {
     serverID: proxyConfig.serverId || '',
     name: proxyConfig.name || '',
     type: (proxyConfig.type || '') as ProxyConfigTableSchema['type'],
-    status: (proxyConfig.stopped ? 'stopped' : 'running') as ProxyConfigTableSchema['status'],
+    status: proxyConfig.stopped ? 'stopped' : liveStatus || 'unknown',
     config: proxyConfig.config || '',
     localIP: parsed?.localIP,
     localPort: parsed?.localPort,
@@ -72,7 +72,7 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [typeFilter, setTypeFilter] = React.useState<string>('all')
-  const [statusFilter, setStatusFilter] = React.useState<'all' | 'running' | 'stopped'>('all')
+  const [statusFilter, setStatusFilter] = React.useState<string>('all')
   const [minPort, setMinPort] = React.useState('')
   const [maxPort, setMaxPort] = React.useState('')
   const globalRefetchTrigger = useStore($proxyTableRefetchTrigger)
@@ -113,16 +113,34 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
     placeholderData: keepPreviousData,
   })
 
+  const pageProxyConfigs = dataQuery.data?.proxyConfigs ?? ProxyConfigs
+  const statusQueries = useQueries({
+    queries: pageProxyConfigs.map((proxyConfig) => ({
+      queryKey: ['getProxyConfigStatus', proxyConfig.clientId, proxyConfig.serverId, proxyConfig.name, globalRefetchTrigger],
+      queryFn: () => getProxyConfig({
+        clientId: proxyConfig.clientId,
+        serverId: proxyConfig.serverId,
+        name: proxyConfig.name,
+      }),
+      enabled: Boolean(proxyConfig.clientId && proxyConfig.serverId && proxyConfig.name && !proxyConfig.stopped),
+      refetchInterval: 10000,
+    })),
+  })
+
   const rows = React.useMemo(() => {
     const min = Number(minPort)
     const max = Number(maxPort)
-    return (dataQuery.data?.proxyConfigs ?? ProxyConfigs)
-      .map(toTableRow)
+    return pageProxyConfigs
+      .map((proxyConfig, index) => toTableRow(proxyConfig, statusQueries[index]?.data?.workingStatus?.status))
       .filter((row) => typeFilter === 'all' || row.type === typeFilter)
       .filter((row) => statusFilter === 'all' || row.status === statusFilter)
       .filter((row) => minPort === '' || ((row.remotePort ?? row.localPort ?? 0) >= min))
       .filter((row) => maxPort === '' || ((row.remotePort ?? row.localPort ?? Number.MAX_SAFE_INTEGER) <= max))
-  }, [dataQuery.data, ProxyConfigs, typeFilter, statusFilter, minPort, maxPort])
+  }, [pageProxyConfigs, statusQueries, typeFilter, statusFilter, minPort, maxPort])
+
+  React.useEffect(() => {
+    setPagination((current) => ({ ...current, pageIndex: 0 }))
+  }, [Keyword, ClientID, ServerID, typeFilter, statusFilter, minPort, maxPort])
 
   const table = useReactTable({
     data: rows,
@@ -144,6 +162,7 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
   })
 
   const proxyTypes = ['tcp', 'udp', 'http', 'https', 'tcpmux', 'stcp', 'xtcp', 'sudp']
+  const proxyStatuses = ['running', 'stopped', 'unknown', 'new', 'wait start', 'start error', 'check failed', 'error']
 
   return (
     <DataTable
@@ -161,8 +180,11 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
           </select>
           <select className="h-9 rounded-md border bg-background px-3 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}>
             <option value="all">全部状态</option>
-            <option value="running">运行中</option>
-            <option value="stopped">已暂停</option>
+            {proxyStatuses.map((status) => (
+              <option key={status} value={status}>
+                {formatProxyStatus(status)}
+              </option>
+            ))}
           </select>
           <Input className="h-9 w-28" inputMode="numeric" placeholder="最小端口" value={minPort} onChange={(e) => setMinPort(e.target.value)} />
           <Input className="h-9 w-28" inputMode="numeric" placeholder="最大端口" value={maxPort} onChange={(e) => setMaxPort(e.target.value)} />
@@ -183,4 +205,18 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
       }
     />
   )
+}
+
+function formatProxyStatus(status: string) {
+  const labels: Record<string, string> = {
+    running: '运行中',
+    stopped: '已暂停',
+    unknown: '未知',
+    new: '新建',
+    'wait start': '等待启动',
+    'start error': '启动错误',
+    'check failed': '检查失败',
+    error: '错误',
+  }
+  return labels[status] ?? status
 }

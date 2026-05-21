@@ -49,6 +49,7 @@ export type ServerTableSchema = {
   secret: string
   stopped: boolean
   info?: string
+  clientStatus?: ClientStatus
   ip: string
   config?: string
   frpsUrls: string[]
@@ -223,15 +224,6 @@ export const ServerID = ({ server }: { server: ServerTableSchema }) => {
 
 export const ServerInfo = ({ server }: { server: ServerTableSchema }) => {
   const { t } = useTranslation()
-  const { data: clientsStatus } = useQuery({
-    queryKey: ['clientsStatus', server.id],
-    queryFn: async () => {
-      return await getClientsStatus({
-        clientIds: [server.id],
-        clientType: ClientType.FRPS,
-      })
-    },
-  })
 
   const trans = (info: ClientStatus | undefined) => {
     let statusText: 'server.status_online' | 'server.status_offline' |
@@ -253,17 +245,18 @@ export const ServerInfo = ({ server }: { server: ServerTableSchema }) => {
     return statusText
   }
 
+  const status = server.clientStatus
   const infoColor =
-    clientsStatus?.clients[server.id]?.status === ClientStatus_Status.ONLINE ? (
+    status?.status === ClientStatus_Status.ONLINE ? (
       server.stopped ? 'text-yellow-500' : 'text-green-500') : 'text-red-500'
 
   return (
     <div className="flex items-center gap-2 flex-row">
       <Badge variant={"secondary"} className={`p-2 border rounded font-mono w-fit ${infoColor} text-nowrap rounded-full h-6`}>
-        {`${clientsStatus?.clients[server.id]?.ping}ms,${t(trans(clientsStatus?.clients[server.id]))}`}
+        {`${status?.ping ?? '-'}ms,${t(trans(status))}`}
       </Badge>
-      {clientsStatus?.clients[server.id]?.version &&
-        <ClientDetail clientStatus={clientsStatus?.clients[server.id]} />
+      {status?.version &&
+        <ClientDetail clientStatus={status} />
       }
     </div>
   )

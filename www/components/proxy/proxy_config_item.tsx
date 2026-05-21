@@ -1,4 +1,4 @@
-import { ColumnDef, Row, Table } from '@tanstack/react-table'
+import { ColumnDef, Row } from '@tanstack/react-table'
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { VisitPreview } from '../base/visit-preview'
@@ -7,10 +7,7 @@ import { getServer } from '@/api/server'
 import { ProxyType, TypedProxyConfig } from '@/types/proxy'
 import { ProxyConfigActions } from './proxy_config_actions'
 import { ProxyConfig } from '@/lib/pb/common'
-import { getProxyConfig } from '@/api/proxy'
 import { Badge } from '../ui/badge'
-import { useStore } from '@nanostores/react'
-import { $proxyTableRefetchTrigger } from '@/store/refetch-trigger'
 import { DataTableColumnHeader } from '../base/column_header'
 
 export type ProxyConfigTableSchema = {
@@ -19,7 +16,7 @@ export type ProxyConfigTableSchema = {
   clientID: string
   name: string
   type: ProxyType
-  status: 'running' | 'stopped'
+  status: string
   localIP?: string
   localPort?: number
   remotePort?: number
@@ -80,12 +77,16 @@ export const columns: ColumnDef<ProxyConfigTableSchema>[] = [
   },
   {
     accessorKey: 'remotePort',
-    header: '远程端口',
+    header: function Header({ column }: any) {
+      return <DataTableColumnHeader column={column} title="远程端口" />
+    },
     cell: ({ row }) => row.original.remotePort || '-',
   },
   {
     accessorKey: 'localPort',
-    header: '本地端口',
+    header: function Header({ column }: any) {
+      return <DataTableColumnHeader column={column} title="本地端口" />
+    },
     cell: ({ row }) => row.original.localPort || '-',
   },
   {
@@ -127,19 +128,6 @@ function VisitPreviewField({ row }: { row: Row<ProxyConfigTableSchema> }) {
 }
 
 function ProxyStatus({ row }: { row: Row<ProxyConfigTableSchema> }) {
-  const refetchTrigger = useStore($proxyTableRefetchTrigger)
-  const { data } = useQuery({
-    queryKey: ['getProxyConfig', row.original.clientID, row.original.serverID, row.original.name, refetchTrigger],
-    queryFn: () => {
-      return getProxyConfig({
-        clientId: row.original.clientID,
-        serverId: row.original.serverID,
-        name: row.original.name,
-      })
-    },
-    refetchInterval: 10000,
-  })
-
   function getStatusColor(status: string): string {
     switch (status) {
       case 'new':
@@ -163,9 +151,9 @@ function ProxyStatus({ row }: { row: Row<ProxyConfigTableSchema> }) {
     <div className="flex items-center gap-2 flex-row text-nowrap">
       <Badge
         variant={'secondary'}
-        className={`p-2 border rounded font-mono w-fit ${getStatusColor(data?.workingStatus?.status || 'unknown')} text-nowrap rounded-full h-6`}
+        className={`p-2 border rounded font-mono w-fit ${getStatusColor(row.original.status || 'unknown')} text-nowrap rounded-full h-6`}
       >
-        {data?.workingStatus?.status || 'loading'}
+        {row.original.status || 'unknown'}
       </Badge>
     </div>
   )

@@ -117,11 +117,14 @@ export const ClientList: React.FC<ClientListProps> = ({ Clients, Keyword, Trigge
                 : status?.status === ClientStatus_Status.OFFLINE
                   ? 'offline'
                   : 'unknown'
+        const version = status?.version
         return {
           id,
           status: ClientConfigured(client) ? 'valid' : 'invalid',
           runtimeStatus,
           ping: status?.ping ?? Number.MAX_SAFE_INTEGER,
+          info: `${runtimeStatus} ${status?.ping ?? ''} ${version?.gitVersion ?? ''} ${version?.platform ?? ''} ${version?.goVersion ?? ''}`,
+          clientStatus: status,
           secret: client.secret == undefined ? '' : client.secret,
           config: client.config,
           stopped: client.stopped || false,
@@ -134,6 +137,10 @@ export const ClientList: React.FC<ClientListProps> = ({ Clients, Keyword, Trigge
       .filter((row) => runtimeFilter === 'all' || row.runtimeStatus === runtimeFilter)
       .filter((row) => nodeFilter === 'all' || (nodeFilter === 'ephemeral' ? row.ephemeral : !row.ephemeral))
   }, [pageClients, statusQuery.data, configFilter, runtimeFilter, nodeFilter])
+
+  React.useEffect(() => {
+    setPagination((current) => ({ ...current, pageIndex: 0 }))
+  }, [Keyword, configFilter, runtimeFilter, nodeFilter])
 
   const table = useReactTable({
     data: rows.length > 0 || dataQuery.data ? rows : data,

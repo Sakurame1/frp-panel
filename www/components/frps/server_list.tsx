@@ -111,11 +111,14 @@ export const ServerList: React.FC<ServerListProps> = ({ Servers, Keyword, Trigge
                 : status?.status === ClientStatus_Status.OFFLINE
                   ? 'offline'
                   : 'unknown'
+        const version = status?.version
         return {
           id,
           status: server.config == undefined || server.config == '' ? 'invalid' : 'valid',
           runtimeStatus,
           ping: status?.ping ?? Number.MAX_SAFE_INTEGER,
+          info: `${runtimeStatus} ${status?.ping ?? ''} ${version?.gitVersion ?? ''} ${version?.platform ?? ''} ${version?.goVersion ?? ''}`,
+          clientStatus: status,
           secret: server.secret == undefined ? '' : server.secret,
           ip: server.ip || '',
           config: server.config,
@@ -126,6 +129,10 @@ export const ServerList: React.FC<ServerListProps> = ({ Servers, Keyword, Trigge
       .filter((row) => configFilter === 'all' || row.status === configFilter)
       .filter((row) => runtimeFilter === 'all' || row.runtimeStatus === runtimeFilter)
   }, [pageServers, statusQuery.data, configFilter, runtimeFilter])
+
+  React.useEffect(() => {
+    setPagination((current) => ({ ...current, pageIndex: 0 }))
+  }, [Keyword, configFilter, runtimeFilter])
 
   const table = useReactTable({
     data: rows.length > 0 || dataQuery.data ? rows : data,

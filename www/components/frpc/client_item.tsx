@@ -53,6 +53,7 @@ export type ClientTableSchema = {
   stopped: boolean
   ephemeral: boolean
   info?: string
+  clientStatus?: ClientStatus
   config?: string
   originClient: Client
   clientIds: string[]
@@ -237,15 +238,6 @@ export const ClientID = ({ client }: { client: ClientTableSchema }) => {
 
 export const ClientInfo = ({ client }: { client: ClientTableSchema }) => {
   const { t } = useTranslation()
-  const { data: clientsStatus } = useQuery({
-    queryKey: ['clientsStatus', client.id],
-    queryFn: async () => {
-      return await getClientsStatus({
-        clientIds: [client.id],
-        clientType: ClientType.FRPC,
-      })
-    },
-  })
 
   const trans = (info: ClientStatus | undefined) => {
     let statusText:
@@ -270,8 +262,9 @@ export const ClientInfo = ({ client }: { client: ClientTableSchema }) => {
     return statusText
   }
 
+  const status = client.clientStatus
   const infoColor =
-    clientsStatus?.clients[client.id]?.status === ClientStatus_Status.ONLINE
+    status?.status === ClientStatus_Status.ONLINE
       ? client.stopped
         ? 'text-yellow-500'
         : 'text-green-500'
@@ -280,10 +273,10 @@ export const ClientInfo = ({ client }: { client: ClientTableSchema }) => {
   return (
     <div className="flex items-center gap-2 flex-row">
       <Badge variant={'secondary'} className={`p-2 border font-mono w-fit ${infoColor} text-nowrap rounded-full h-6`}>
-        {`${clientsStatus?.clients[client.id].ping}ms,${t(trans(clientsStatus?.clients[client.id]))}`}
+        {`${status?.ping ?? '-'}ms,${t(trans(status))}`}
       </Badge>
-      {clientsStatus?.clients[client.id].version && <ClientDetail clientStatus={clientsStatus?.clients[client.id]} />}
-      {NeedUpgrade(clientsStatus?.clients[client.id].version) && (
+      {status?.version && <ClientDetail clientStatus={status} />}
+      {NeedUpgrade(status?.version) && (
         <Badge variant={'destructive'} className={`p-2 border font-mono w-fit text-nowrap rounded-full h-6`}>
           {t('client.need_upgrade')}
         </Badge>
