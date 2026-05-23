@@ -19,7 +19,17 @@ import (
 	"github.com/spf13/cast"
 )
 
-func UpdateFrpcHander(c *app.Context, req *pb.UpdateFRPCRequest) (*pb.UpdateFRPCResponse, error) {
+func UpdateFrpcHander(c *app.Context, req *pb.UpdateFRPCRequest) (resp *pb.UpdateFRPCResponse, retErr error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logger.Logger(c).Errorf("update frpc panic, req: [%+v], panic: [%v]", req, recovered)
+			resp = &pb.UpdateFRPCResponse{
+				Status: &pb.Status{Code: pb.RespCode_RESP_CODE_INVALID, Message: fmt.Sprintf("update frpc panic: %v", recovered)},
+			}
+			retErr = fmt.Errorf("update frpc panic: %v", recovered)
+		}
+	}()
+
 	logger.Logger(c).Infof("update frpc, req: [%+v]", req)
 	var (
 		content     = req.GetConfig()

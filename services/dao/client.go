@@ -130,6 +130,13 @@ func (q *clientQuery) GetClientByFilter(userInfo models.UserInfo, client *models
 
 	var err error
 	if len(filter.OriginClientID) != 0 {
+		err = db.Where("tenant_id = ? AND user_id = ?", userInfo.GetTenantID(), userInfo.GetUserID()).
+			Where(filter).
+			First(c).Error
+		if err == nil {
+			return c.ClientEntity, nil
+		}
+
 		origin, err := q.GetClientByClientID(userInfo, filter.OriginClientID)
 		if err != nil {
 			return nil, err
