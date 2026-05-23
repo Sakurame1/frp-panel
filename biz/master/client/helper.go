@@ -47,13 +47,13 @@ func MakeClientShadowed(c *app.Context, serverID string, clientEntity *models.Cl
 	var clientID = clientEntity.ClientID
 	var childClient *models.ClientEntity
 	var err error
-	if len(clientEntity.ConfigContent) != 0 {
-		childClient, _, err = ChildClientForServer(c, serverID, clientEntity)
-		if err != nil {
-			logger.Logger(c).WithError(err).Errorf("cannot create child client, id: [%s]", clientID)
-			return nil, err
-		}
+	childClient, _, err = ChildClientForServer(c, serverID, clientEntity)
+	if err != nil {
+		logger.Logger(c).WithError(err).Errorf("cannot create child client, id: [%s]", clientID)
+		return nil, err
+	}
 
+	if len(clientEntity.ConfigContent) != 0 {
 		if err := m.RebuildProxyConfigFromClient(userInfo, &models.Client{ClientEntity: childClient}); err != nil {
 			logger.Logger(c).WithError(err).Errorf("cannot rebuild proxy config from client, id: [%s]", childClient.ClientID)
 			return nil, err

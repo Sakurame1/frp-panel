@@ -72,6 +72,12 @@ func UpdateFrpcHander(c *app.Context, req *pb.UpdateFRPCRequest) (*pb.UpdateFRPC
 				Status: &pb.Status{Code: pb.RespCode_RESP_CODE_INVALID, Message: "cannot make client shadowed"},
 			}, fmt.Errorf("cannot make client shadowed")
 		}
+		if cli == nil {
+			logger.Logger(c).Errorf("cannot get child client after shadowing, id: [%s]", reqClientID)
+			return &pb.UpdateFRPCResponse{
+				Status: &pb.Status{Code: pb.RespCode_RESP_CODE_INVALID, Message: "cannot get child client"},
+			}, fmt.Errorf("cannot get child client")
+		}
 	}
 
 	srv, err := q.GetServerByServerID(userInfo, req.GetServerId())
