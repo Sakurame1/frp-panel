@@ -192,17 +192,26 @@ func UpdateFrpcHander(c *app.Context, req *pb.UpdateFRPCRequest) (*pb.UpdateFRPC
 		ServerId: lo.ToPtr(serverID),
 		Config:   rawCliConf,
 	}
+	originClientID := cli.OriginClientID
+	if len(originClientID) == 0 {
+		originClientID = cli.ClientID
+	}
 
 	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				logger.Logger(c.Background()).Errorf("update frpc async notification panic, client: [%s], server: [%s], panic: [%v]", originClientID, serverID, recovered)
+			}
+		}()
 		childCtx := c.Background()
-		cliToUpdate, err := dao.NewQuery(childCtx).GetClientByFilter(userInfo, &models.ClientEntity{ClientID: cli.OriginClientID}, nil)
+		cliToUpdate, err := dao.NewQuery(childCtx).GetClientByFilter(userInfo, &models.ClientEntity{ClientID: originClientID}, nil)
 		if err != nil {
-			logger.Logger(childCtx).WithError(err).Errorf("cannot get origin client, id: [%s]", cliToUpdate.OriginClientID)
+			logger.Logger(childCtx).WithError(err).Errorf("cannot get origin client, id: [%s]", originClientID)
 			return
 		}
 
 		if cliToUpdate.Stopped {
-			logger.Logger(childCtx).Infof("client [%s] is stopped, do not send update event", cliToUpdate.OriginClientID)
+			logger.Logger(childCtx).Infof("client [%s] is stopped, do not send update event", originClientID)
 			return
 		}
 
@@ -212,7 +221,7 @@ func UpdateFrpcHander(c *app.Context, req *pb.UpdateFRPCRequest) (*pb.UpdateFRPC
 		}
 
 		if resp == nil {
-			logger.Logger(childCtx).Errorf("cannot get response, server: [%s], client: [%s]", serverID, cliToUpdate.OriginClientID)
+			logger.Logger(childCtx).Errorf("cannot get response, server: [%s], client: [%s]", serverID, originClientID)
 		}
 	}()
 
