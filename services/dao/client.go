@@ -87,7 +87,18 @@ func (q *clientQuery) GetClientByClientID(userInfo models.UserInfo, clientID str
 		Where(&models.Client{ClientEntity: &models.ClientEntity{ClientID: clientID}}).
 		First(c).Error
 	if err != nil {
-		return nil, err
+		if err := db.
+			Where("tenant_id = ?", userInfo.GetTenantID()).
+			Where(&models.Client{ClientEntity: &models.ClientEntity{ClientID: clientID}}).
+			First(c).Error; err != nil {
+			return nil, err
+		}
+		if len(c.OriginClientID) == 0 {
+			return nil, err
+		}
+		if err := CanAccessClient(q.ctx, userInfo, c.OriginClientID, defs.RBACActionView); err != nil {
+			return nil, err
+		}
 	}
 	return c, nil
 }

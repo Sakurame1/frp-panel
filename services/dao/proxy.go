@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/VaalaCat/frp-panel/defs"
 	"github.com/VaalaCat/frp-panel/models"
 	"github.com/VaalaCat/frp-panel/pb"
 	"github.com/VaalaCat/frp-panel/utils"
@@ -336,14 +337,14 @@ func (q *proxyQuery) GetProxyConfigsByClientID(userInfo models.UserInfo, clientI
 	if clientID == "" {
 		return nil, fmt.Errorf("invalid client id")
 	}
+	if err := CanAccessClient(q.ctx, userInfo, clientID, defs.RBACActionView); err != nil {
+		return nil, err
+	}
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	list := []*models.ProxyConfig{}
 	err := db.
-		Where(&models.ProxyConfig{ProxyConfigEntity: &models.ProxyConfigEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-			ClientID: clientID,
-		}}).
+		Where("tenant_id = ?", userInfo.GetTenantID()).
+		Where(db.Where("client_id = ?", clientID).Or("origin_client_id = ?", clientID)).
 		Find(&list).Error
 	if err != nil {
 		return nil, err
@@ -373,7 +374,6 @@ func (q *proxyQuery) GetProxyConfigByFilter(userInfo models.UserInfo, proxyConfi
 		filter.ServerID = proxyConfig.ServerID
 	}
 
-	filter.UserID = userInfo.GetUserID()
 	filter.TenantID = userInfo.GetTenantID()
 
 	respProxyCfg := &models.ProxyConfig{}
@@ -383,7 +383,53 @@ func (q *proxyQuery) GetProxyConfigByFilter(userInfo models.UserInfo, proxyConfi
 	if err != nil {
 		return nil, err
 	}
+	accessClientID := respProxyCfg.ClientID
+	if len(respProxyCfg.OriginClientID) != 0 {
+		accessClientID = respProxyCfg.OriginClientID
+	}
+	if err := CanAccessClient(q.ctx, userInfo, accessClientID, defs.RBACActionView); err != nil {
+		return nil, err
+	}
 	return respProxyCfg, nil
+}
+
+func cloneProxyConfigFilters(filters *models.ProxyConfigEntity) *models.ProxyConfigEntity {
+	if filters == nil {
+		return &models.ProxyConfigEntity{}
+	}
+	clone := *filters
+	clone.UserID = 0
+	clone.TenantID = 0
+	return &clone
+}
+
+func (q *proxyQuery) proxyConfigQuery(userInfo models.UserInfo, filters *models.ProxyConfigEntity, action defs.RBACAction) (*gorm.DB, error) {
+	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
+	query := db.Model(&models.ProxyConfig{}).Where("tenant_id = ?", userInfo.GetTenantID())
+	filter := cloneProxyConfigFilters(filters)
+	clientID := filter.OriginClientID
+	filter.OriginClientID = ""
+
+	if len(clientID) != 0 {
+		if err := CanAccessClient(q.ctx, userInfo, clientID, action); err != nil {
+			return nil, err
+		}
+		query = query.Where(db.Where("origin_client_id = ?", clientID).Or("client_id = ?", clientID))
+	} else if !userInfo.IsAdmin() {
+		sharedIDs := accessibleObjectIDs(q.ctx, userInfo, defs.RBACObjClient, action)
+		ownedScope := db.Where("user_id = ?", userInfo.GetUserID())
+		if len(sharedIDs) == 0 {
+			query = query.Where(ownedScope)
+		} else {
+			query = query.Where(
+				ownedScope.
+					Or("origin_client_id IN ?", sharedIDs).
+					Or("client_id IN ?", sharedIDs),
+			)
+		}
+	}
+
+	return query.Where(&models.ProxyConfig{ProxyConfigEntity: filter}), nil
 }
 
 func (q *proxyQuery) ListProxyConfigsWithFilters(userInfo models.UserInfo, page, pageSize int, filters *models.ProxyConfigEntity) ([]*models.ProxyConfig, error) {
@@ -391,16 +437,14 @@ func (q *proxyQuery) ListProxyConfigsWithFilters(userInfo models.UserInfo, page,
 		return nil, fmt.Errorf("invalid page or page size")
 	}
 
-	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	offset := (page - 1) * pageSize
 
-	filters.UserID = userInfo.GetUserID()
-	filters.TenantID = userInfo.GetTenantID()
-
 	var proxyConfigs []*models.ProxyConfig
-	err := db.Where(&models.ProxyConfig{
-		ProxyConfigEntity: filters,
-	}).Where(filters).Offset(offset).Limit(pageSize).Find(&proxyConfigs).Error
+	query, err := q.proxyConfigQuery(userInfo, filters, defs.RBACActionView)
+	if err != nil {
+		return nil, err
+	}
+	err = query.Offset(offset).Limit(pageSize).Find(&proxyConfigs).Error
 	if err != nil {
 		return nil, err
 	}
@@ -427,16 +471,14 @@ func (q *proxyQuery) ListProxyConfigsWithFiltersAndKeyword(userInfo models.UserI
 		return nil, fmt.Errorf("invalid page or page size or keyword")
 	}
 
-	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	offset := (page - 1) * pageSize
 
-	filters.UserID = userInfo.GetUserID()
-	filters.TenantID = userInfo.GetTenantID()
-
 	var proxyConfigs []*models.ProxyConfig
-	err := db.Where(&models.ProxyConfig{
-		ProxyConfigEntity: filters,
-	}).Where(filters).Where("name like ?", "%"+keyword+"%").Offset(offset).Limit(pageSize).Find(&proxyConfigs).Error
+	query, err := q.proxyConfigQuery(userInfo, filters, defs.RBACActionView)
+	if err != nil {
+		return nil, err
+	}
+	err = query.Where("name like ?", "%"+keyword+"%").Offset(offset).Limit(pageSize).Find(&proxyConfigs).Error
 	if err != nil {
 		return nil, err
 	}
@@ -464,18 +506,20 @@ func (m *proxyMutation) UpdateProxyConfig(userInfo models.UserInfo, proxyCfg *mo
 		return fmt.Errorf("invalid proxy config id")
 	}
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
-	proxyCfg.UserID = userInfo.GetUserID()
-	proxyCfg.TenantID = userInfo.GetTenantID()
-	return db.Where(&models.ProxyConfig{
-		ProxyConfigEntity: &models.ProxyConfigEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-			ClientID: proxyCfg.ClientID,
-		},
-		Model: &gorm.Model{
-			ID: proxyCfg.ID,
-		},
-	}).Save(proxyCfg).Error
+	old := &models.ProxyConfig{}
+	if err := db.Where("tenant_id = ?", userInfo.GetTenantID()).Where(&models.ProxyConfig{Model: &gorm.Model{ID: proxyCfg.ID}}).First(old).Error; err != nil {
+		return err
+	}
+	accessClientID := old.ClientID
+	if len(old.OriginClientID) != 0 {
+		accessClientID = old.OriginClientID
+	}
+	if err := CanAccessClient(m.ctx, userInfo, accessClientID, defs.RBACActionEdit); err != nil {
+		return err
+	}
+	proxyCfg.UserID = old.UserID
+	proxyCfg.TenantID = old.TenantID
+	return db.Save(proxyCfg).Error
 }
 
 func (m *proxyMutation) DeleteProxyConfig(userInfo models.UserInfo, clientID, name string) error {
@@ -483,30 +527,38 @@ func (m *proxyMutation) DeleteProxyConfig(userInfo models.UserInfo, clientID, na
 		return fmt.Errorf("invalid client id or name")
 	}
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
-	return db.Unscoped().
-		Where(&models.ProxyConfig{ProxyConfigEntity: &models.ProxyConfigEntity{
-			UserID:   userInfo.GetUserID(),
-			TenantID: userInfo.GetTenantID(),
-			ClientID: clientID,
-			Name:     name,
-		}}).
-		Delete(&models.ProxyConfig{}).Error
+	proxyCfg := &models.ProxyConfig{}
+	if err := db.
+		Where("tenant_id = ? AND name = ?", userInfo.GetTenantID(), name).
+		Where(db.Where("client_id = ?", clientID).Or("origin_client_id = ?", clientID)).
+		First(proxyCfg).Error; err != nil {
+		return err
+	}
+	accessClientID := proxyCfg.ClientID
+	if len(proxyCfg.OriginClientID) != 0 {
+		accessClientID = proxyCfg.OriginClientID
+	}
+	if err := CanAccessClient(m.ctx, userInfo, accessClientID, defs.RBACActionEdit); err != nil {
+		return err
+	}
+	return db.Unscoped().Delete(proxyCfg).Error
 }
 
 func (m *proxyMutation) DeleteProxyConfigsByClientIDOrOriginClientID(userInfo models.UserInfo, clientID string) error {
 	if clientID == "" {
 		return fmt.Errorf("invalid client id")
 	}
+	if err := CanAccessClient(m.ctx, userInfo, clientID, defs.RBACActionEdit); err != nil {
+		return err
+	}
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
 	return db.Unscoped().
 		Where(
 			db.Where(&models.ProxyConfig{ProxyConfigEntity: &models.ProxyConfigEntity{
-				UserID:   userInfo.GetUserID(),
 				TenantID: userInfo.GetTenantID(),
 				ClientID: clientID,
 			}}).
 				Or(&models.ProxyConfig{ProxyConfigEntity: &models.ProxyConfigEntity{
-					UserID:         userInfo.GetUserID(),
 					TenantID:       userInfo.GetTenantID(),
 					OriginClientID: clientID,
 				}})).
@@ -519,10 +571,12 @@ func (m *proxyMutation) DeleteProxyConfigsByClientID(userInfo models.UserInfo, c
 	if clientID == "" {
 		return fmt.Errorf("invalid client id")
 	}
+	if err := CanAccessClient(m.ctx, userInfo, clientID, defs.RBACActionEdit); err != nil {
+		return err
+	}
 	db := m.ctx.GetApp().GetDBManager().GetDefaultDB()
 	return db.Unscoped().
 		Where(&models.ProxyConfig{ProxyConfigEntity: &models.ProxyConfigEntity{
-			UserID:   userInfo.GetUserID(),
 			TenantID: userInfo.GetTenantID(),
 			ClientID: clientID,
 		}}).
@@ -533,15 +587,14 @@ func (q *proxyQuery) GetProxyConfigByOriginClientIDAndName(userInfo models.UserI
 	if clientID == "" || name == "" {
 		return nil, fmt.Errorf("invalid client id or name")
 	}
+	if err := CanAccessClient(q.ctx, userInfo, clientID, defs.RBACActionView); err != nil {
+		return nil, err
+	}
 	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
 	item := &models.ProxyConfig{}
 	err := db.
-		Where(&models.ProxyConfig{ProxyConfigEntity: &models.ProxyConfigEntity{
-			UserID:         userInfo.GetUserID(),
-			TenantID:       userInfo.GetTenantID(),
-			OriginClientID: clientID,
-			Name:           name,
-		}}).
+		Where("tenant_id = ? AND name = ?", userInfo.GetTenantID(), name).
+		Where(db.Where("origin_client_id = ?", clientID).Or("client_id = ?", clientID)).
 		First(&item).Error
 	if err != nil {
 		return nil, err
@@ -554,14 +607,12 @@ func (q *proxyQuery) CountProxyConfigs(userInfo models.UserInfo) (int64, error) 
 }
 
 func (q *proxyQuery) CountProxyConfigsWithFilters(userInfo models.UserInfo, filters *models.ProxyConfigEntity) (int64, error) {
-	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
-	filters.UserID = userInfo.GetUserID()
-	filters.TenantID = userInfo.GetTenantID()
-
 	var count int64
-	err := db.Model(&models.ProxyConfig{}).Where(&models.ProxyConfig{
-		ProxyConfigEntity: filters,
-	}).Count(&count).Error
+	query, err := q.proxyConfigQuery(userInfo, filters, defs.RBACActionView)
+	if err != nil {
+		return 0, err
+	}
+	err = query.Count(&count).Error
 	if err != nil {
 		return 0, err
 	}
@@ -573,14 +624,12 @@ func (q *proxyQuery) CountProxyConfigsWithFiltersAndKeyword(userInfo models.User
 		return q.CountProxyConfigsWithFilters(userInfo, filters)
 	}
 
-	db := q.ctx.GetApp().GetDBManager().GetDefaultDB()
-	filters.UserID = userInfo.GetUserID()
-	filters.TenantID = userInfo.GetTenantID()
-
 	var count int64
-	err := db.Model(&models.ProxyConfig{}).Where(&models.ProxyConfig{
-		ProxyConfigEntity: filters,
-	}).Where("name like ?", "%"+keyword+"%").Count(&count).Error
+	query, err := q.proxyConfigQuery(userInfo, filters, defs.RBACActionView)
+	if err != nil {
+		return 0, err
+	}
+	err = query.Where("name like ?", "%"+keyword+"%").Count(&count).Error
 	if err != nil {
 		return 0, err
 	}

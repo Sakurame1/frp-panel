@@ -22,7 +22,14 @@ func CanAccessClient(ctx *app.Context, userInfo models.UserInfo, clientID string
 	if err := db.Where(&models.Client{ClientEntity: &models.ClientEntity{ClientID: clientID}}).First(client).Error; err != nil {
 		return err
 	}
-	return canAccessResource(ctx, userInfo, defs.RBACObjClient, clientID, ownedResource{
+	err := canAccessResource(ctx, userInfo, defs.RBACObjClient, clientID, ownedResource{
+		tenantID: client.TenantID,
+		userID:   client.UserID,
+	}, action)
+	if err == nil || len(client.OriginClientID) == 0 {
+		return err
+	}
+	return canAccessResource(ctx, userInfo, defs.RBACObjClient, client.OriginClientID, ownedResource{
 		tenantID: client.TenantID,
 		userID:   client.UserID,
 	}, action)
