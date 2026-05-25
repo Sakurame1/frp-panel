@@ -63,7 +63,7 @@ type Config struct {
 		} `env-prefix:"WORKER_" env-description:"worker's config"`
 		Features struct {
 			EnableFunctions   bool `env:"ENABLE_FUNCTIONS" env-default:"true" env-description:"enable functions"`
-			EnableRemoteShell bool `env:"ENABLE_REMOTE_SHELL" env-default:"true" env-description:"enable remote shell"`
+			EnableRemoteShell bool `env:"ENABLE_REMOTE_SHELL" env-default:"false" env-description:"enable remote shell"`
 		} `env-prefix:"FEATURES_" env-description:"features config"`
 	} `env-prefix:"CLIENT_"`
 	IsDebug bool `env:"IS_DEBUG" env-default:"false" env-description:"is debug mode"`

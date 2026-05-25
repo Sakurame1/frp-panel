@@ -4,12 +4,20 @@ if($PSVersionTable.PSVersion.Major -lt 5){
     exit
 }
 $clientrepo = "VaalaCat/frp-panel"
+$mode = "client"
+if ($args.Count -gt 0 -and ![string]::IsNullOrWhiteSpace($args[0])) {
+    $mode = $args[0]
+}
+$binaryPrefix = "frp-panel"
+if ($mode -eq "client") {
+    $binaryPrefix = "frp-panel-client"
+}
 #  x86 or x64
 if ([System.Environment]::Is64BitOperatingSystem) {
     if ([System.Environment]::Is64BitProcess) {
-        $file = "frp-panel-windows-amd64.exe"
+        $file = "$binaryPrefix-windows-amd64.exe"
     } else {
-        $file = "frp-panel-windows-arm64.exe"
+        $file = "$binaryPrefix-windows-arm64.exe"
     }
 } else {
     Write-Host "Your system is 32-bit, please use 64-bit operating system" -BackgroundColor DarkGreen -ForegroundColor White
