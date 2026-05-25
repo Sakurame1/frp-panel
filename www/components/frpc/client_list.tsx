@@ -25,6 +25,8 @@ import { ClientType } from '@/lib/pb/common'
 import { ClientStatus_Status } from '@/lib/pb/api_master'
 import { Button } from '../ui/button'
 
+const ALL_ROWS_PAGE_SIZE = 10000
+
 export interface ClientListProps {
   Clients: Client[]
   Keyword?: string
@@ -66,8 +68,6 @@ export const ClientList: React.FC<ClientListProps> = ({ Clients, Keyword, Trigge
   })
 
   const fetchDataOptions = {
-    pageIndex,
-    pageSize,
     Keyword,
     TriggerRefetch,
     globalRefetchTrigger,
@@ -81,15 +81,15 @@ export const ClientList: React.FC<ClientListProps> = ({ Clients, Keyword, Trigge
   )
 
   const dataQuery = useQuery({
-    queryKey: ['listClient', fetchDataOptions],
+    queryKey: ['listClientAll', fetchDataOptions],
     queryFn: async () => {
-      return await listClient({ page: fetchDataOptions.pageIndex + 1, pageSize: fetchDataOptions.pageSize, keyword: fetchDataOptions.Keyword })
+      return await listClient({ page: 1, pageSize: ALL_ROWS_PAGE_SIZE, keyword: fetchDataOptions.Keyword })
     },
     placeholderData: keepPreviousData,
   })
 
-  const pageClients = dataQuery.data?.clients ?? Clients
-  const clientIds = React.useMemo(() => pageClients.map((client) => client.id || '').filter(Boolean), [pageClients])
+  const allClients = dataQuery.data?.clients ?? Clients
+  const clientIds = React.useMemo(() => allClients.map((client) => client.id || '').filter(Boolean), [allClients])
   const statusQuery = useQuery({
     queryKey: ['listClientStatuses', clientIds.join(','), globalRefetchTrigger],
     queryFn: async () => {
@@ -103,7 +103,7 @@ export const ClientList: React.FC<ClientListProps> = ({ Clients, Keyword, Trigge
   })
 
   const rows = React.useMemo(() => {
-    return pageClients
+    return allClients
       .map((client) => {
         const id = client.id || ''
         const status = statusQuery.data?.clients[id]
@@ -136,7 +136,7 @@ export const ClientList: React.FC<ClientListProps> = ({ Clients, Keyword, Trigge
       .filter((row) => configFilter === 'all' || row.status === configFilter)
       .filter((row) => runtimeFilter === 'all' || row.runtimeStatus === runtimeFilter)
       .filter((row) => nodeFilter === 'all' || (nodeFilter === 'ephemeral' ? row.ephemeral : !row.ephemeral))
-  }, [pageClients, statusQuery.data, configFilter, runtimeFilter, nodeFilter])
+  }, [allClients, statusQuery.data, configFilter, runtimeFilter, nodeFilter])
 
   React.useEffect(() => {
     setPagination((current) => ({ ...current, pageIndex: 0 }))
@@ -144,19 +144,17 @@ export const ClientList: React.FC<ClientListProps> = ({ Clients, Keyword, Trigge
 
   const table = useReactTable({
     data: rows.length > 0 || dataQuery.data ? rows : data,
-    pageCount: Math.ceil(
-      // @ts-ignore
-      (dataQuery.data?.total == undefined ? 0 : dataQuery.data?.total) / fetchDataOptions.pageSize ?? 0,
-    ),
     columns: clientColumnsDef,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => {
+      setSorting(updater)
+      setPagination((current) => ({ ...current, pageIndex: 0 }))
+    },
     onPaginationChange: setPagination,
     onColumnFiltersChange: setColumnFilters,
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    manualPagination: true,
     state: {
       sorting,
       pagination,

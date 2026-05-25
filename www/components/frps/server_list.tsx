@@ -24,6 +24,8 @@ import { ClientType } from '@/lib/pb/common'
 import { ClientStatus_Status } from '@/lib/pb/api_master'
 import { Button } from '../ui/button'
 
+const ALL_ROWS_PAGE_SIZE = 10000
+
 export interface ServerListProps {
   Servers: Server[]
   Keyword?: string
@@ -62,8 +64,6 @@ export const ServerList: React.FC<ServerListProps> = ({ Servers, Keyword, Trigge
   })
 
   const fetchDataOptions = {
-    pageIndex,
-    pageSize,
     Keyword,
     TriggerRefetch,
     globalRefetchTrigger,
@@ -77,15 +77,15 @@ export const ServerList: React.FC<ServerListProps> = ({ Servers, Keyword, Trigge
   )
 
   const dataQuery = useQuery({
-    queryKey: ['listServer', fetchDataOptions],
+    queryKey: ['listServerAll', fetchDataOptions],
     queryFn: async () => {
-      return await listServer({ page: fetchDataOptions.pageIndex + 1, pageSize: fetchDataOptions.pageSize, keyword: fetchDataOptions.Keyword })
+      return await listServer({ page: 1, pageSize: ALL_ROWS_PAGE_SIZE, keyword: fetchDataOptions.Keyword })
     },
     placeholderData: keepPreviousData,
   })
 
-  const pageServers = dataQuery.data?.servers ?? Servers
-  const serverIds = React.useMemo(() => pageServers.map((server) => server.id || '').filter(Boolean), [pageServers])
+  const allServers = dataQuery.data?.servers ?? Servers
+  const serverIds = React.useMemo(() => allServers.map((server) => server.id || '').filter(Boolean), [allServers])
   const statusQuery = useQuery({
     queryKey: ['listServerStatuses', serverIds.join(','), globalRefetchTrigger],
     queryFn: async () => {
@@ -99,7 +99,7 @@ export const ServerList: React.FC<ServerListProps> = ({ Servers, Keyword, Trigge
   })
 
   const rows = React.useMemo(() => {
-    return pageServers
+    return allServers
       .map((server) => {
         const id = server.id || ''
         const status = statusQuery.data?.clients[id]
@@ -128,7 +128,7 @@ export const ServerList: React.FC<ServerListProps> = ({ Servers, Keyword, Trigge
       })
       .filter((row) => configFilter === 'all' || row.status === configFilter)
       .filter((row) => runtimeFilter === 'all' || row.runtimeStatus === runtimeFilter)
-  }, [pageServers, statusQuery.data, configFilter, runtimeFilter])
+  }, [allServers, statusQuery.data, configFilter, runtimeFilter])
 
   React.useEffect(() => {
     setPagination((current) => ({ ...current, pageIndex: 0 }))
@@ -136,19 +136,17 @@ export const ServerList: React.FC<ServerListProps> = ({ Servers, Keyword, Trigge
 
   const table = useReactTable({
     data: rows.length > 0 || dataQuery.data ? rows : data,
-    pageCount: Math.ceil(
-      //@ts-ignore
-      (dataQuery.data?.total == undefined ? 0 : dataQuery.data?.total) / fetchDataOptions.pageSize ?? 0,
-    ),
     columns: serverColumnsDef,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => {
+      setSorting(updater)
+      setPagination((current) => ({ ...current, pageIndex: 0 }))
+    },
     onPaginationChange: setPagination,
     onColumnFiltersChange: setColumnFilters,
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    manualPagination: true,
     state: {
       sorting,
       pagination,

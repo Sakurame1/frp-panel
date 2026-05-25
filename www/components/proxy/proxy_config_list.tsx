@@ -22,6 +22,8 @@ import { useStore } from '@nanostores/react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 
+const ALL_ROWS_PAGE_SIZE = 10000
+
 export interface ProxyConfigListProps {
   ProxyConfigs: ProxyConfig[]
   Keyword?: string
@@ -83,8 +85,6 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
   })
 
   const fetchDataOptions = {
-    pageIndex,
-    pageSize,
     Keyword,
     TriggerRefetch,
     ClientID,
@@ -100,11 +100,11 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
   )
 
   const dataQuery = useQuery({
-    queryKey: ['listProxyConfigs', fetchDataOptions],
+    queryKey: ['listProxyConfigsAll', fetchDataOptions],
     queryFn: async () => {
       return await listProxyConfig({
-        page: fetchDataOptions.pageIndex + 1,
-        pageSize: fetchDataOptions.pageSize,
+        page: 1,
+        pageSize: ALL_ROWS_PAGE_SIZE,
         keyword: fetchDataOptions.Keyword,
         clientId: fetchDataOptions.ClientID,
         serverId: fetchDataOptions.ServerID,
@@ -113,9 +113,9 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
     placeholderData: keepPreviousData,
   })
 
-  const pageProxyConfigs = dataQuery.data?.proxyConfigs ?? ProxyConfigs
+  const allProxyConfigs = dataQuery.data?.proxyConfigs ?? ProxyConfigs
   const statusQueries = useQueries({
-    queries: pageProxyConfigs.map((proxyConfig) => ({
+    queries: allProxyConfigs.map((proxyConfig) => ({
       queryKey: ['getProxyConfigStatus', proxyConfig.clientId, proxyConfig.serverId, proxyConfig.name, globalRefetchTrigger],
       queryFn: () => getProxyConfig({
         clientId: proxyConfig.clientId,
@@ -130,13 +130,13 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
   const rows = React.useMemo(() => {
     const min = Number(minPort)
     const max = Number(maxPort)
-    return pageProxyConfigs
+    return allProxyConfigs
       .map((proxyConfig, index) => toTableRow(proxyConfig, statusQueries[index]?.data?.workingStatus?.status))
       .filter((row) => typeFilter === 'all' || row.type === typeFilter)
       .filter((row) => statusFilter === 'all' || row.status === statusFilter)
       .filter((row) => minPort === '' || ((row.remotePort ?? row.localPort ?? 0) >= min))
       .filter((row) => maxPort === '' || ((row.remotePort ?? row.localPort ?? Number.MAX_SAFE_INTEGER) <= max))
-  }, [pageProxyConfigs, statusQueries, typeFilter, statusFilter, minPort, maxPort])
+  }, [allProxyConfigs, statusQueries, typeFilter, statusFilter, minPort, maxPort])
 
   React.useEffect(() => {
     setPagination((current) => ({ ...current, pageIndex: 0 }))
@@ -144,16 +144,17 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
 
   const table = useReactTable({
     data: rows,
-    pageCount: Math.ceil(((dataQuery.data?.total ?? 0) / fetchDataOptions.pageSize) ?? 0),
     columns: proxyConfigColumnsDef,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => {
+      setSorting(updater)
+      setPagination((current) => ({ ...current, pageIndex: 0 }))
+    },
     onPaginationChange: setPagination,
     onColumnFiltersChange: setColumnFilters,
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    manualPagination: true,
     state: {
       sorting,
       pagination,
