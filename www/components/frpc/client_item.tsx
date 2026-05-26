@@ -43,6 +43,7 @@ import { Label } from '../ui/label'
 import { Checkbox } from '../ui/checkbox'
 import { ClientUpgradeDialog } from '../base/client_upgrade_dialog'
 import { DataTableColumnHeader } from '../base/column_header'
+import { copyText } from '@/lib/clipboard'
 
 export type ClientTableSchema = {
   id: string
@@ -183,8 +184,8 @@ export const ClientID = ({ client }: { client: ClientTableSchema }) => {
             </div>
             <div className="grid grid-cols-2 items-center gap-4">
               <Button
-                onClick={() =>
-                  navigator.clipboard.writeText(
+                onClick={async () =>
+                  copyText(
                     WindowsInstallCommand('client', client, {
                       ...platformInfo,
                       githubProxyUrl: frontendPreference.useServerGithubProxyUrl && frontendPreference.githubProxyUrl ? frontendPreference.githubProxyUrl : platformInfo.githubProxyUrl,
@@ -208,8 +209,8 @@ export const ClientID = ({ client }: { client: ClientTableSchema }) => {
             </div>
             <div className="grid grid-cols-2 items-center gap-4">
               <Button
-                onClick={() =>
-                  navigator.clipboard.writeText(LinuxInstallCommand('client', client, {
+                onClick={async () =>
+                  copyText(LinuxInstallCommand('client', client, {
                     ...platformInfo,
                     githubProxyUrl: frontendPreference.useServerGithubProxyUrl && frontendPreference.githubProxyUrl ? frontendPreference.githubProxyUrl : platformInfo.githubProxyUrl,
                   }, frontendPreference.useServerGithubProxyUrl))
@@ -337,7 +338,16 @@ export const ClientSecret = ({ client }: { client: ClientTableSchema }) => {
               size="sm"
               variant="outline"
               className="w-full"
-              onClick={() => navigator.clipboard.writeText(ExecCommandStr('client', client, platformInfo))}
+              onClick={async () => {
+                try {
+                  await copyText(ExecCommandStr('client', client, platformInfo))
+                  toast(t('client.actions_menu.copy_success'))
+                } catch (error) {
+                  toast(t('client.actions_menu.copy_failed'), {
+                    description: error instanceof Error ? error.message : JSON.stringify(error),
+                  })
+                }
+              }}
               disabled={!platformInfo}
             >
               {t('common.copy')}
@@ -444,10 +454,10 @@ export const ClientActions: React.FC<ClientItemProps> = ({ client, table }) => {
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>{t('client.actions_menu.title')}</DropdownMenuLabel>
           <DropdownMenuItem
-            onClick={() => {
+            onClick={async () => {
               try {
                 if (platformInfo) {
-                  navigator.clipboard.writeText(ExecCommandStr('client', client, platformInfo))
+                  await copyText(ExecCommandStr('client', client, platformInfo))
                   toast(t('client.actions_menu.copy_success'))
                 } else {
                   toast(t('client.actions_menu.copy_failed'))
@@ -462,10 +472,10 @@ export const ClientActions: React.FC<ClientItemProps> = ({ client, table }) => {
             {t('client.actions_menu.copy_start_command')}
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => {
+            onClick={async () => {
               try {
                 if (platformInfo) {
-                  navigator.clipboard.writeText(LinuxInstallCommand('client', client, {
+                  await copyText(LinuxInstallCommand('client', client, {
                     ...platformInfo,
                     githubProxyUrl: frontendPreference.useServerGithubProxyUrl && frontendPreference.githubProxyUrl ? frontendPreference.githubProxyUrl : platformInfo.githubProxyUrl,
                   }, frontendPreference.useServerGithubProxyUrl))

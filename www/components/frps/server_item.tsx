@@ -40,6 +40,7 @@ import { $serverTableRefetchTrigger } from '@/store/refetch-trigger'
 import { Checkbox } from '../ui/checkbox'
 import { Label } from '../ui/label'
 import { DataTableColumnHeader } from '../base/column_header'
+import { copyText } from '@/lib/clipboard'
 
 export type ServerTableSchema = {
   id: string
@@ -175,7 +176,7 @@ export const ServerID = ({ server }: { server: ServerTableSchema }) => {
             </div>
             <div className="grid grid-cols-2 items-center gap-4">
               <Button
-                onClick={() => navigator.clipboard.writeText(WindowsInstallCommand('server', server, {
+                onClick={async () => copyText(WindowsInstallCommand('server', server, {
                   ...platformInfo,
                   githubProxyUrl: frontendPreference.useServerGithubProxyUrl && frontendPreference.githubProxyUrl ? frontendPreference.githubProxyUrl : platformInfo.githubProxyUrl,
                 }, frontendPreference.useServerGithubProxyUrl))}
@@ -196,7 +197,7 @@ export const ServerID = ({ server }: { server: ServerTableSchema }) => {
             </div>
             <div className="grid grid-cols-2 items-center gap-4">
               <Button
-                onClick={() => navigator.clipboard.writeText(LinuxInstallCommand('server', server, {
+                onClick={async () => copyText(LinuxInstallCommand('server', server, {
                   ...platformInfo,
                   githubProxyUrl: frontendPreference.useServerGithubProxyUrl && frontendPreference.githubProxyUrl ? frontendPreference.githubProxyUrl : platformInfo.githubProxyUrl,
                 }, frontendPreference.useServerGithubProxyUrl))}
@@ -302,7 +303,14 @@ export const ServerSecret = ({ server }: { server: ServerTableSchema }) => {
               size="sm"
               variant="outline"
               className="w-full"
-              onClick={() => navigator.clipboard.writeText(ExecCommandStr('server', server, platformInfo))}
+              onClick={async () => {
+                try {
+                  await copyText(ExecCommandStr('server', server, platformInfo))
+                  toast(t('server.actions_menu.copy_success'))
+                } catch (error) {
+                  toast(t('server.actions_menu.copy_failed'))
+                }
+              }}
               disabled={!platformInfo}
             >
               {t('common.copy')}
@@ -361,10 +369,10 @@ export const ServerActions: React.FC<ServerItemProps> = ({ server, table }) => {
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>{t('server.actions_menu.title')}</DropdownMenuLabel>
           <DropdownMenuItem
-            onClick={() => {
+            onClick={async () => {
               try {
                 if (platformInfo) {
-                  navigator.clipboard.writeText(ExecCommandStr('server', server, platformInfo))
+                  await copyText(ExecCommandStr('server', server, platformInfo))
                   toast(t('server.actions_menu.copy_success'))
                 } else {
                   toast(t('server.actions_menu.copy_failed'))
