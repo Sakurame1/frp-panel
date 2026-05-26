@@ -266,6 +266,28 @@ export const ServerInfo = ({ server }: { server: ServerTableSchema }) => {
 export const ServerSecret = ({ server }: { server: ServerTableSchema }) => {
   const { t } = useTranslation()
   const platformInfo = useStore($platformInfo)
+  const [copyState, setCopyState] = React.useState<'idle' | 'success' | 'failed'>('idle')
+  const startCommand = platformInfo ? ExecCommandStr('server', server, platformInfo) : ''
+
+  const handleCopyStartCommand = async () => {
+    if (!platformInfo) {
+      setCopyState('failed')
+      toast(t('server.actions_menu.copy_failed'))
+      window.setTimeout(() => setCopyState('idle'), 2500)
+      return
+    }
+
+    try {
+      await copyText(startCommand)
+      setCopyState('success')
+      toast(t('server.actions_menu.copy_success'))
+      window.setTimeout(() => setCopyState('idle'), 1500)
+    } catch {
+      setCopyState('failed')
+      toast(t('server.actions_menu.copy_failed'))
+      window.setTimeout(() => setCopyState('idle'), 2500)
+    }
+  }
 
   if (!platformInfo) {
     return (
@@ -297,23 +319,20 @@ export const ServerSecret = ({ server }: { server: ServerTableSchema }) => {
           </div>
           <div className="grid gap-2">
             <pre className="bg-muted p-3 rounded-md font-mono text-sm overflow-x-auto whitespace-pre-wrap break-all">
-              {ExecCommandStr('server', server, platformInfo)}
+              {startCommand}
             </pre>
             <Button
               size="sm"
               variant="outline"
               className="w-full"
-              onClick={async () => {
-                try {
-                  await copyText(ExecCommandStr('server', server, platformInfo))
-                  toast(t('server.actions_menu.copy_success'))
-                } catch (error) {
-                  toast(t('server.actions_menu.copy_failed'))
-                }
+              onPointerDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                void handleCopyStartCommand()
               }}
               disabled={!platformInfo}
             >
-              {t('common.copy')}
+              {copyState === 'success' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : t('common.copy')}
             </Button>
           </div>
         </div>

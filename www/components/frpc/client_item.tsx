@@ -294,6 +294,30 @@ export const ClientInfo = ({ client }: { client: ClientTableSchema }) => {
 export const ClientSecret = ({ client }: { client: ClientTableSchema }) => {
   const { t } = useTranslation()
   const platformInfo = useStore($platformInfo)
+  const [copyState, setCopyState] = React.useState<'idle' | 'success' | 'failed'>('idle')
+  const startCommand = platformInfo ? ExecCommandStr('client', client, platformInfo) : ''
+
+  const handleCopyStartCommand = async () => {
+    if (!platformInfo) {
+      setCopyState('failed')
+      toast(t('client.actions_menu.copy_failed'))
+      window.setTimeout(() => setCopyState('idle'), 2500)
+      return
+    }
+
+    try {
+      await copyText(startCommand)
+      setCopyState('success')
+      toast(t('client.actions_menu.copy_success'))
+      window.setTimeout(() => setCopyState('idle'), 1500)
+    } catch (error) {
+      setCopyState('failed')
+      toast(t('client.actions_menu.copy_failed'), {
+        description: error instanceof Error ? error.message : JSON.stringify(error),
+      })
+      window.setTimeout(() => setCopyState('idle'), 2500)
+    }
+  }
 
   if (!platformInfo) {
     return (
@@ -332,25 +356,20 @@ export const ClientSecret = ({ client }: { client: ClientTableSchema }) => {
           </div>
           <div className="grid gap-2">
             <pre className="bg-muted p-3 rounded-md font-mono text-sm overflow-x-auto whitespace-pre-wrap break-all">
-              {ExecCommandStr('client', client, platformInfo)}
+              {startCommand}
             </pre>
             <Button
               size="sm"
               variant="outline"
               className="w-full"
-              onClick={async () => {
-                try {
-                  await copyText(ExecCommandStr('client', client, platformInfo))
-                  toast(t('client.actions_menu.copy_success'))
-                } catch (error) {
-                  toast(t('client.actions_menu.copy_failed'), {
-                    description: error instanceof Error ? error.message : JSON.stringify(error),
-                  })
-                }
+              onPointerDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                void handleCopyStartCommand()
               }}
               disabled={!platformInfo}
             >
-              {t('common.copy')}
+              {copyState === 'success' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : t('common.copy')}
             </Button>
           </div>
         </div>
