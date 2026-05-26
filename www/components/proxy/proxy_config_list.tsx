@@ -14,7 +14,7 @@ import {
 } from '@tanstack/react-table'
 
 import React from 'react'
-import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { getProxyConfig, listProxyConfig } from '@/api/proxy'
 import { TypedProxyConfig } from '@/types/proxy'
 import { $proxyTableRefetchTrigger } from '@/store/refetch-trigger'
@@ -23,6 +23,9 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 
 const ALL_ROWS_PAGE_SIZE = 10000
+const STATUS_QUERY_CONCURRENCY = 32
+const STATUS_UPDATE_BATCH_SIZE = 100
+const STATUS_REFRESH_INTERVAL_MS = 10000
 
 export interface ProxyConfigListProps {
   ProxyConfigs: ProxyConfig[]
@@ -43,6 +46,10 @@ function parseProxyConfig(cfg?: string): TypedProxyConfig | undefined {
 
 function getRemotePort(config?: TypedProxyConfig): number | undefined {
   return config && 'remotePort' in config ? config.remotePort : undefined
+}
+
+function getProxyConfigKey(proxyConfig: ProxyConfig): string {
+  return `${proxyConfig.clientId || ''}|${proxyConfig.serverId || ''}|${proxyConfig.name || ''}`
 }
 
 function toTableRow(proxyConfig: ProxyConfig, liveStatus?: string): ProxyConfigTableSchema {
@@ -77,6 +84,8 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
   const [statusFilter, setStatusFilter] = React.useState<string>('all')
   const [minPort, setMinPort] = React.useState('')
   const [maxPort, setMaxPort] = React.useState('')
+  const [statusByProxy, setStatusByProxy] = React.useState<Record<string, string>>({})
+  const [statusRefreshTick, setStatusRefreshTick] = React.useState(0)
   const globalRefetchTrigger = useStore($proxyTableRefetchTrigger)
 
   const [{ pageIndex, pageSize }, setPagination] = React.useState<PaginationState>({
@@ -114,30 +123,99 @@ export const ProxyConfigList: React.FC<ProxyConfigListProps> = ({
   })
 
   const allProxyConfigs = dataQuery.data?.proxyConfigs ?? ProxyConfigs
-  const statusQueries = useQueries({
-    queries: allProxyConfigs.map((proxyConfig) => ({
-      queryKey: ['getProxyConfigStatus', proxyConfig.clientId, proxyConfig.serverId, proxyConfig.name, globalRefetchTrigger],
-      queryFn: () =>
-        getProxyConfig({
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      setStatusRefreshTick((current) => current + 1)
+    }, STATUS_REFRESH_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const statusTargets = React.useMemo(
+    () =>
+      allProxyConfigs
+        .filter((proxyConfig) => proxyConfig.clientId && proxyConfig.serverId && proxyConfig.name && !proxyConfig.stopped)
+        .map((proxyConfig) => ({
+          key: getProxyConfigKey(proxyConfig),
           clientId: proxyConfig.clientId,
           serverId: proxyConfig.serverId,
           name: proxyConfig.name,
-        }),
-      enabled: Boolean(proxyConfig.clientId && proxyConfig.serverId && proxyConfig.name && !proxyConfig.stopped),
-      refetchInterval: 10000,
-    })),
-  })
+        })),
+    [allProxyConfigs],
+  )
+
+  React.useEffect(() => {
+    let cancelled = false
+    let nextIndex = 0
+    let pendingStatuses: Record<string, string> = {}
+    const activeKeys = new Set(allProxyConfigs.map(getProxyConfigKey))
+
+    setStatusByProxy((current) => {
+      const next: Record<string, string> = {}
+      for (const [key, status] of Object.entries(current)) {
+        if (activeKeys.has(key)) {
+          next[key] = status
+        }
+      }
+      for (const proxyConfig of allProxyConfigs) {
+        if (proxyConfig.stopped) {
+          next[getProxyConfigKey(proxyConfig)] = 'stopped'
+        }
+      }
+      return next
+    })
+
+    const flushStatuses = () => {
+      if (cancelled || Object.keys(pendingStatuses).length === 0) {
+        return
+      }
+      const batch = pendingStatuses
+      pendingStatuses = {}
+      setStatusByProxy((current) => ({ ...current, ...batch }))
+    }
+
+    const worker = async () => {
+      while (!cancelled) {
+        const target = statusTargets[nextIndex]
+        nextIndex += 1
+        if (!target) {
+          break
+        }
+
+        try {
+          const resp = await getProxyConfig({
+            clientId: target.clientId,
+            serverId: target.serverId,
+            name: target.name,
+          })
+          pendingStatuses[target.key] = resp.workingStatus?.status || 'unknown'
+        } catch {
+          pendingStatuses[target.key] = 'error'
+        }
+
+        if (Object.keys(pendingStatuses).length >= STATUS_UPDATE_BATCH_SIZE) {
+          flushStatuses()
+        }
+      }
+    }
+
+    const workers = Array.from({ length: Math.min(STATUS_QUERY_CONCURRENCY, statusTargets.length) }, worker)
+    Promise.all(workers).then(flushStatuses)
+
+    return () => {
+      cancelled = true
+    }
+  }, [allProxyConfigs, statusTargets, globalRefetchTrigger, statusRefreshTick])
 
   const rows = React.useMemo(() => {
     const min = Number(minPort)
     const max = Number(maxPort)
     return allProxyConfigs
-      .map((proxyConfig, index) => toTableRow(proxyConfig, statusQueries[index]?.data?.workingStatus?.status))
+      .map((proxyConfig) => toTableRow(proxyConfig, statusByProxy[getProxyConfigKey(proxyConfig)]))
       .filter((row) => typeFilter === 'all' || row.type === typeFilter)
       .filter((row) => statusFilter === 'all' || row.status === statusFilter)
       .filter((row) => minPort === '' || ((row.remotePort ?? row.localPort ?? 0) >= min))
       .filter((row) => maxPort === '' || ((row.remotePort ?? row.localPort ?? Number.MAX_SAFE_INTEGER) <= max))
-  }, [allProxyConfigs, statusQueries, typeFilter, statusFilter, minPort, maxPort])
+  }, [allProxyConfigs, statusByProxy, typeFilter, statusFilter, minPort, maxPort])
 
   React.useEffect(() => {
     setPagination((current) => ({ ...current, pageIndex: 0 }))
